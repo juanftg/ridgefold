@@ -28,3 +28,5 @@ Spawn is flood-filled onto the largest walk-connected region so you are never dr
 React + React Three Fiber + three.js. Seeded `simplex-noise` (mulberry32). Grid collision, coyote time, jump buffer. No physics engine — the rules above are the physics.
 
 Game code lives in `src/game/`.
+
+Source: https://github.com/juanftg/ridgefold
