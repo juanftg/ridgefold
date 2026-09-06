@@ -1,7 +1,4 @@
-node_modules/
-.vercel/
-dist/
-.grok/
-screenshots/
-*.log
+node_modules
+dist
 .DS_Store
+*.local

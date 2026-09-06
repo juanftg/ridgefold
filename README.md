@@ -1,10 +1,21 @@
 # Ridgefold
 
-Isometric 3D wanderer. A seeded fold of hills, mesas, and missing land.
+Isometric wanderer. A seeded fold of hills, mesas, and missing land.
 
 Walk the slopes. Jump ledges that are too steep. Gaps in the fold — ravines and islands that do not touch — stop you unless you can leap them.
 
-## Play
+## Run it on your machine
+
+You need **Node.js 20+** ([nodejs.org](https://nodejs.org)).
+
+```bash
+git clone https://github.com/juanftg/ridgefold.git
+cd ridgefold
+npm install
+npm run dev
+```
+
+Vite will print a local URL (usually `http://localhost:5173`). Open that in your browser.
 
 | Input | Action |
 | --- | --- |
@@ -25,8 +36,4 @@ Spawn is flood-filled onto the largest walk-connected region so you are never dr
 
 ## Stack
 
-React + React Three Fiber + three.js. Seeded `simplex-noise` (mulberry32). Grid collision, coyote time, jump buffer. No physics engine — the rules above are the physics.
-
-Game code lives in `src/game/`.
-
-Source: https://github.com/juanftg/ridgefold
+React + Vite + Canvas 2D isometric renderer. Seeded `simplex-noise` (mulberry32). Grid collision, coyote time, jump buffer. Game code lives in `src/game/`.
