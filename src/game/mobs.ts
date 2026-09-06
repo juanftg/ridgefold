@@ -1,12 +1,16 @@
 import {
   CHUNK_SIZE,
+  GRAVITY,
   HARE_FLEE_R,
+  HARE_ROCK_FLEE_T,
   HEIGHT_UNIT,
   PLAYER_IFRAME,
   PLAYER_RADIUS,
-  STOMP_BOUNCE,
+  ROCK_COOLDOWN,
+  ROCK_SPEED,
   WALK_STEP,
   WOLF_AGGRO_R,
+  WOLF_FLEE_T,
 } from "./constants";
 import { mulberry32 } from "./rng";
 import type { Player } from "./sim";
@@ -29,6 +33,7 @@ export type Mob = {
   walkPhase: number;
   facing: number;
   hurtT: number;
+  fleeT: number;
   alive: boolean;
   aggressive: boolean;
   thinkT: number;
@@ -38,19 +43,31 @@ export type Mob = {
   cz: number;
 };
 
+export type Rock = {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  alive: boolean;
+  age: number;
+};
+
 export type MobField = {
   mobs: Mob[];
+  rocks: Rock[];
   nextId: number;
   spawned: Set<string>;
 };
 
 export type MobEvents = {
   playerDamage: number;
-  stomps: number;
+  scares: number;
 };
 
 export function createMobField(): MobField {
-  return { mobs: [], nextId: 1, spawned: new Set() };
+  return { mobs: [], rocks: [], nextId: 1, spawned: new Set() };
 }
 
 function sampleTop(world: World, x: number, z: number) {
@@ -98,6 +115,7 @@ export function spawnMobAt(
     walkPhase: 0,
     facing: 0,
     hurtT: 0,
+    fleeT: 0,
     alive: true,
     aggressive,
     thinkT: 0.2,
@@ -165,18 +183,90 @@ export function pruneMobs(field: MobField, x: number, z: number, keepChunks: num
   }
 }
 
+function scareMob(m: Mob, player: Player) {
+  m.fleeT = m.kind === "wolf" ? WOLF_FLEE_T : HARE_ROCK_FLEE_T;
+  m.hurtT = 0.22;
+  m.thinkT = 0;
+  const dx = m.x - player.x;
+  const dz = m.z - player.z;
+  const dist = Math.hypot(dx, dz);
+  if (dist > 0.001) {
+    m.wishX = dx / dist;
+    m.wishZ = dz / dist;
+  } else {
+    m.wishX = -Math.sin(player.yaw);
+    m.wishZ = -Math.cos(player.yaw);
+  }
+}
+
+export function throwRock(world: World, field: MobField, player: Player): boolean {
+  if (player.throwCd > 0 || player.hp <= 0) return false;
+  if (field.rocks.filter((r) => r.alive).length >= 3) return false;
+  player.throwCd = ROCK_COOLDOWN;
+  player.squash = 1.12;
+  let fx = -Math.sin(player.yaw);
+  let fz = -Math.cos(player.yaw);
+  let mag = Math.hypot(fx, fz);
+  if (mag < 0.05) {
+    fx = 1;
+    fz = 0;
+    mag = 1;
+  }
+  fx /= mag;
+  fz /= mag;
+  let aimX = fx;
+  let aimZ = fz;
+  let aimD = 7;
+  let aimed = false;
+  for (const m of field.mobs) {
+    if (!m.alive || !m.aggressive) continue;
+    const dx = m.x - player.x;
+    const dz = m.z - player.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 0.45 || d > 12) continue;
+    const nx = dx / d;
+    const nz = dz / d;
+    if (nx * fx + nz * fz < 0.18) continue;
+    if (!aimed || d < aimD) {
+      aimed = true;
+      aimD = d;
+      aimX = nx;
+      aimZ = nz;
+    }
+  }
+  const range = aimed ? aimD : 7;
+  const lift = 2.45 + Math.min(3.6, range * 0.2);
+  field.rocks.push({
+    x: player.x + aimX * 0.38,
+    y: player.y + 0.58,
+    z: player.z + aimZ * 0.38,
+    vx: aimX * ROCK_SPEED,
+    vy: lift,
+    vz: aimZ * ROCK_SPEED,
+    alive: true,
+    age: 0,
+  });
+  return true;
+}
+
 export function stepMobs(world: World, field: MobField, player: Player, dt: number): MobEvents {
-  const events: MobEvents = { playerDamage: 0, stomps: 0 };
+  const events: MobEvents = { playerDamage: 0, scares: 0 };
   for (const m of field.mobs) {
     if (!m.alive) continue;
     m.hurtT = Math.max(0, m.hurtT - dt);
+    m.fleeT = Math.max(0, m.fleeT - dt);
     m.thinkT -= dt;
     const dx = player.x - m.x;
     const dz = player.z - m.z;
     const dist = Math.hypot(dx, dz);
+    const scared = m.fleeT > 0;
     if (m.thinkT <= 0) {
       m.thinkT = 0.35 + (m.id % 7) * 0.08;
-      if (m.aggressive) {
+      if (scared) {
+        const inv = dist > 0.001 ? 1 / dist : 0;
+        m.wishX = -dx * inv;
+        m.wishZ = -dz * inv;
+      } else if (m.aggressive) {
         if (dist < WOLF_AGGRO_R && player.hp > 0) {
           const inv = dist > 0.001 ? 1 / dist : 0;
           m.wishX = dx * inv;
@@ -197,9 +287,9 @@ export function stepMobs(world: World, field: MobField, player: Player, dt: numb
       }
     }
     const cell = sampleTop(world, m.x, m.z);
-    const chasing = m.aggressive && dist < WOLF_AGGRO_R;
-    const fleeing = !m.aggressive && dist < HARE_FLEE_R;
-    let speed = m.kind === "wolf" ? (chasing ? 3.85 : 2.05) : fleeing ? 4.55 : 2.35;
+    const chasing = m.aggressive && !scared && dist < WOLF_AGGRO_R;
+    const fleeing = scared || (!m.aggressive && dist < HARE_FLEE_R);
+    let speed = m.kind === "wolf" ? (scared ? 5.35 : chasing ? 3.85 : 2.05) : fleeing ? 4.55 : 2.35;
     if (cell.water) speed *= 0.55;
     m.vx = m.wishX * speed;
     m.vz = m.wishZ * speed;
@@ -229,29 +319,42 @@ export function stepMobs(world: World, field: MobField, player: Player, dt: numb
     }
   }
 
+  for (const rock of field.rocks) {
+    if (!rock.alive) continue;
+    rock.age += dt;
+    rock.vy -= GRAVITY * 0.82 * dt;
+    rock.x += rock.vx * dt;
+    rock.y += rock.vy * dt;
+    rock.z += rock.vz * dt;
+    const floor = tileTop(sampleTop(world, rock.x, rock.z));
+    if (rock.y <= floor + 0.06 || rock.age > 1.55) {
+      rock.alive = false;
+      continue;
+    }
+    for (const m of field.mobs) {
+      if (!m.alive) continue;
+      const dx = rock.x - m.x;
+      const dz = rock.z - m.z;
+      const reach = m.radius + 0.4;
+      if (dx * dx + dz * dz > reach * reach) continue;
+      if (rock.y < m.y - 0.12 || rock.y > m.y + 1.15) continue;
+      scareMob(m, player);
+      rock.alive = false;
+      events.scares += 1;
+      break;
+    }
+  }
+  field.rocks = field.rocks.filter((r) => r.alive);
+
   if (player.hp <= 0) return events;
 
   for (const m of field.mobs) {
-    if (!m.alive) continue;
+    if (!m.alive || !m.aggressive || m.fleeT > 0) continue;
+    if (player.iFrame > 0) continue;
     const dx = player.x - m.x;
     const dz = player.z - m.z;
-    const reach = player.radius ?? PLAYER_RADIUS;
-    const sep = m.radius + reach;
-    if (dx * dx + dz * dz > sep * sep * 1.18) continue;
-    const above = player.y > m.y + 0.14;
-    const stomping = !player.grounded && player.vy < -0.35 && above;
-    if (stomping) {
-      m.hp -= 1;
-      m.hurtT = 0.28;
-      player.vy = STOMP_BOUNCE;
-      player.grounded = false;
-      player.squash = 1.2;
-      events.stomps += 1;
-      if (m.hp <= 0) m.alive = false;
-      continue;
-    }
-    if (!m.aggressive) continue;
-    if (player.iFrame > 0) continue;
+    const reach = (player.radius ?? PLAYER_RADIUS) + m.radius;
+    if (dx * dx + dz * dz > reach * reach * 1.18) continue;
     player.hp = Math.max(0, player.hp - 1);
     player.iFrame = PLAYER_IFRAME;
     player.hurtT = 0.38;
