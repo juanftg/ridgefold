@@ -45,6 +45,7 @@ button:not(:disabled),
   background: var(--bg);
 }
 
+.app canvas,
 .iso-canvas {
   position: absolute;
   inset: 0;
