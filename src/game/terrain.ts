@@ -42,15 +42,16 @@ export type World = {
   spawnH: number;
 };
 
-/** Region spacing. Interiors stay ≥ 10×10 of one height. */
-const REGION = 24;
+/** One region is a wide shelf. Interiors stay ≥ 10×10 of one height. */
+const REGION = 32;
+const PLATEAU_RAMP = 6;
+const WATER_R = 11;
+const BEACH_R = 12.5;
+const SHORE_R = 16.5;
+const SUMMIT_R = 6.6;
+const MIN_CLIMB = 8;
 
 type RegionKind = "lake" | "flat" | "mountain";
-
-type Region = {
-  kind: RegionKind;
-  h: number;
-};
 
 export function chunkKey(cx: number, cz: number): string {
   return `${cx}:${cz}`;
@@ -95,20 +96,23 @@ function regionRoll(ix: number, iz: number, salt: number): number {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-function regionAt(noises: Noises, seedNum: number, ix: number, iz: number): Region {
-  const roll = regionRoll(ix, iz, seedNum);
-  const terr = 0.5 + 0.5 * fbm(noises.terrace, ix * 0.075 + 4.1, iz * 0.075, 2);
-  if (roll < 0.15) return { kind: "lake", h: 0 };
-  if (roll > 0.84) {
-    const peak = 6 + Math.round(terr * 2);
-    return { kind: "mountain", h: peak };
-  }
-  const h = terr < 0.5 ? 2 : terr < 0.82 ? 3 : 4;
-  return { kind: "flat", h };
+function plateauH(noises: Noises, ix: number, iz: number): number {
+  const n = 0.5 + 0.5 * fbm(noises.terrace, ix * 0.07 + 2.2, iz * 0.07, 2);
+  if (n < 0.33) return 2;
+  if (n < 0.8) return 3;
+  return 4;
 }
 
-function landH(r: Region): number {
-  return r.kind === "lake" ? 1 : r.h;
+function featureKind(ix: number, iz: number, seedNum: number): RegionKind {
+  const roll = regionRoll(ix, iz, seedNum);
+  if (roll < 0.11) return "lake";
+  if (roll > 0.89) return "mountain";
+  return "flat";
+}
+
+function peakH(ix: number, iz: number, seedNum: number, base: number): number {
+  const extra = 3 + Math.round(regionRoll(ix, iz, seedNum ^ 0x9e3779b9) * 2);
+  return Math.min(8, Math.max(6, base + extra));
 }
 
 function biomeFor(h: number, kind: RegionKind): Biome {
@@ -119,35 +123,62 @@ function biomeFor(h: number, kind: RegionKind): Biome {
   return 1;
 }
 
+function shelfHeight(
+  noises: Noises,
+  ix: number,
+  iz: number,
+  lx: number,
+  lz: number,
+): number {
+  const base = plateauH(noises, ix, iz);
+  const nx = ix + (lx < REGION / 2 ? -1 : 1);
+  const nz = iz + (lz < REGION / 2 ? -1 : 1);
+  const dx = Math.min(lx, REGION - 1 - lx);
+  const dz = Math.min(lz, REGION - 1 - lz);
+  const nearH = dx < dz ? plateauH(noises, nx, iz) : plateauH(noises, ix, nz);
+  const inset = Math.min(dx, dz);
+  if (base <= nearH || inset >= PLATEAU_RAMP) return base;
+  return Math.max(1, Math.round(nearH + (base - nearH) * (inset / PLATEAU_RAMP)));
+}
+
 export function sampleCellAt(noises: Noises, gx: number, gz: number, seedNum = 0): Cell {
   const ix = Math.floor(gx / REGION);
   const iz = Math.floor(gz / REGION);
   const lx = ((gx % REGION) + REGION) % REGION;
   const lz = ((gz % REGION) + REGION) % REGION;
-  const r = regionAt(noises, seedNum, ix, iz);
-  const rx = regionAt(noises, seedNum, ix + (lx < REGION / 2 ? -1 : 1), iz);
-  const rz = regionAt(noises, seedNum, ix, iz + (lz < REGION / 2 ? -1 : 1));
-  const dx = Math.min(lx, REGION - 1 - lx);
-  const dz = Math.min(lz, REGION - 1 - lz);
-  const inset = Math.min(dx, dz);
-  const near = dx < dz ? rx : rz;
-  const shore = landH(near);
+  const land = shelfHeight(noises, ix, iz, lx, lz);
+  const kind = featureKind(ix, iz, seedNum);
+  const cx = lx + 0.5 - REGION * 0.5;
+  const cz = lz + 0.5 - REGION * 0.5;
+  const dist = Math.hypot(cx, cz);
 
-  if (r.kind === "lake") {
-    if (dx >= 2 && dz >= 2) return { h: 0, water: true, biome: 4 };
-    if (inset >= 1) return { h: 1, water: false, biome: 0 };
-    const h = Math.max(1, Math.round((1 + shore) * 0.5));
-    return { h, water: false, biome: biomeFor(h, "flat") };
+  if (kind === "lake") {
+    if (dist <= WATER_R) return { h: 0, water: true, biome: 4 };
+    if (dist <= BEACH_R) return { h: 1, water: false, biome: 0 };
+    if (dist < SHORE_R) {
+      const t = (dist - BEACH_R) / (SHORE_R - BEACH_R);
+      const h = Math.max(1, Math.round(1 + (land - 1) * t));
+      return { h, water: false, biome: biomeFor(h, "flat") };
+    }
+    return { h: land, water: false, biome: biomeFor(land, "flat") };
   }
 
-  const ramp = r.kind === "mountain" ? 7 : 4;
-  if (inset >= ramp) {
-    return { h: r.h, water: false, biome: biomeFor(r.h, r.kind) };
+  if (kind === "mountain") {
+    const peak = peakH(ix, iz, seedNum, land);
+    const climbW = Math.max(MIN_CLIMB, peak - land + 1);
+    const climbR = SUMMIT_R + climbW;
+    if (dist <= SUMMIT_R) {
+      return { h: peak, water: false, biome: biomeFor(peak, "mountain") };
+    }
+    if (dist < climbR) {
+      const t = 1 - (dist - SUMMIT_R) / climbW;
+      const h = Math.max(land, Math.min(peak, land + Math.round((peak - land) * t)));
+      return { h, water: false, biome: biomeFor(h, "mountain") };
+    }
+    return { h: land, water: false, biome: biomeFor(land, "flat") };
   }
 
-  const t = 1 - inset / ramp;
-  const h = Math.max(1, Math.min(9, Math.round(r.h + (shore - r.h) * t * 0.5)));
-  return { h, water: false, biome: biomeFor(h, r.kind) };
+  return { h: land, water: false, biome: biomeFor(land, "flat") };
 }
 
 function scatterChunkProps(seedNum: number, cx: number, cz: number, cells: Cell[]): Prop[] {
@@ -162,7 +193,7 @@ function scatterChunkProps(seedNum: number, cx: number, cz: number, cells: Cell[
       const [wx, wz] = gridToWorld(gx, gz);
       const top = tileTop(cell);
       const n = rng();
-      if (cell.biome === 1 && cell.h >= 2 && cell.h <= 4 && n > 0.978) {
+      if (cell.biome === 1 && cell.h >= 2 && cell.h <= 4 && n > 0.988) {
         props.push({
           x: wx + (rng() - 0.5) * 0.25,
           y: top,
@@ -171,7 +202,7 @@ function scatterChunkProps(seedNum: number, cx: number, cz: number, cells: Cell[
           scale: 0.75 + rng() * 0.45,
           rot: rng() * Math.PI * 2,
         });
-      } else if (cell.biome === 3 && n > 0.95) {
+      } else if (cell.biome === 3 && n > 0.96) {
         props.push({
           x: wx + (rng() - 0.5) * 0.3,
           y: top,
@@ -252,22 +283,31 @@ function isSpawnPad(world: World, gx: number, gz: number): boolean {
 }
 
 function findSpawn(world: World): { x: number; z: number; h: number } {
-  ensureAround(world, 0, 0, 56);
-  const spiral: [number, number][] = [[0, 0]];
-  for (let r = 1; r <= 48; r++) {
-    for (let x = -r; x <= r; x++) {
-      spiral.push([x, -r], [x, r]);
-    }
-    for (let z = -r + 1; z <= r - 1; z++) {
-      spiral.push([-r, z], [r, z]);
+  ensureAround(world, 0, 0, REGION * 6);
+  const at = (gx: number, gz: number) => {
+    if (!isSpawnPad(world, gx, gz)) return null;
+    const cell = cellAt(world, gx, gz);
+    const [x, z] = gridToWorld(gx, gz);
+    return { x, z, h: cell.h };
+  };
+  for (let r = 0; r <= 8; r++) {
+    for (let iz = -r; iz <= r; iz++) {
+      for (let ix = -r; ix <= r; ix++) {
+        if (Math.max(Math.abs(ix), Math.abs(iz)) !== r) continue;
+        if (featureKind(ix, iz, world.seedNum) !== "flat") continue;
+        const hit = at(ix * REGION + (REGION >> 1), iz * REGION + (REGION >> 1));
+        if (hit) return hit;
+      }
     }
   }
+  const spiral: [number, number][] = [[0, 0]];
+  for (let r = 1; r <= 64; r++) {
+    for (let x = -r; x <= r; x++) spiral.push([x, -r], [x, r]);
+    for (let z = -r + 1; z <= r - 1; z++) spiral.push([-r, z], [r, z]);
+  }
   for (const [gx, gz] of spiral) {
-    if (isSpawnPad(world, gx, gz)) {
-      const cell = cellAt(world, gx, gz);
-      const [x, z] = gridToWorld(gx, gz);
-      return { x, z, h: cell.h };
-    }
+    const hit = at(gx, gz);
+    if (hit) return hit;
   }
   for (const [gx, gz] of spiral) {
     const cell = cellAt(world, gx, gz);
