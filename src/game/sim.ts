@@ -16,6 +16,7 @@ import type { SampledInput } from "./input";
 import { cellAt, tileTop, worldToGrid, type World } from "./terrain";
 
 export type BlockReason = "none" | "ledge";
+export type WandererSex = "female" | "male";
 
 export type Player = {
   x: number;
@@ -34,6 +35,7 @@ export type Player = {
   hintT: number;
   landPulse: number;
   walkPhase: number;
+  idlePhase: number;
   onWater: boolean;
   hp: number;
   maxHp: number;
@@ -41,9 +43,10 @@ export type Player = {
   hurtT: number;
   radius: number;
   throwCd: number;
+  sex: WandererSex;
 };
 
-export function spawnPlayer(world: World): Player {
+export function spawnPlayer(world: World, sex: WandererSex = "female"): Player {
   const y = world.spawnH * HEIGHT_UNIT;
   return {
     x: world.spawnX,
@@ -62,6 +65,7 @@ export function spawnPlayer(world: World): Player {
     hintT: 0,
     landPulse: 0,
     walkPhase: 0,
+    idlePhase: 0,
     onWater: false,
     hp: PLAYER_MAX_HP,
     maxHp: PLAYER_MAX_HP,
@@ -69,6 +73,7 @@ export function spawnPlayer(world: World): Player {
     hurtT: 0,
     radius: PLAYER_RADIUS,
     throwCd: 0,
+    sex,
   };
 }
 
@@ -108,7 +113,8 @@ export function stepPlayer(world: World, p: Player, input: SampledInput, dt = FI
   p.iFrame = Math.max(0, p.iFrame - dt);
   p.hurtT = Math.max(0, p.hurtT - dt);
   p.throwCd = Math.max(0, p.throwCd - dt);
-  p.squash += (1 - p.squash) * Math.min(1, dt * 10);
+  p.idlePhase += dt;
+  p.squash += (1 - p.squash) * (1 - Math.exp(-dt * 11));
 
   if (input.jumpPressed) p.jumpBuf = JUMP_BUFFER;
   else p.jumpBuf = Math.max(0, p.jumpBuf - dt);
@@ -164,19 +170,21 @@ export function stepPlayer(world: World, p: Player, input: SampledInput, dt = FI
     let dyaw = targetYaw - p.yaw;
     while (dyaw > Math.PI) dyaw -= Math.PI * 2;
     while (dyaw < -Math.PI) dyaw += Math.PI * 2;
-    p.yaw += dyaw * Math.min(1, dt * 12);
+    p.yaw += dyaw * (1 - Math.exp(-dt * 14));
   } else if (wishMag > 0.001) {
     const targetYaw = Math.atan2(-wishX, -wishZ);
     let dyaw = targetYaw - p.yaw;
     while (dyaw > Math.PI) dyaw -= Math.PI * 2;
     while (dyaw < -Math.PI) dyaw += Math.PI * 2;
-    p.yaw += dyaw * Math.min(1, dt * 10);
+    p.yaw += dyaw * (1 - Math.exp(-dt * 12));
   }
   if (p.grounded && wishMag > 0.001) {
-    p.walkPhase += dt * Math.PI * 2 * (p.onWater ? 0.92 : 1.28) * Math.min(1, wishMag);
+    p.walkPhase += dt * Math.PI * 2 * (p.onWater ? 0.88 : 1.18) * Math.min(1, wishMag);
   } else if (p.grounded) {
     const rest = Math.round(p.walkPhase / Math.PI) * Math.PI;
-    p.walkPhase += (rest - p.walkPhase) * Math.min(1, dt * 5);
+    p.walkPhase += (rest - p.walkPhase) * (1 - Math.exp(-dt * 4.2));
+  } else {
+    p.walkPhase += dt * 2.4;
   }
 
   p.y += p.vy * dt;
@@ -192,11 +200,10 @@ export function stepPlayer(world: World, p: Player, input: SampledInput, dt = FI
   }
 
   if (p.vy <= 0 && p.y <= top + 0.16) {
-    const wasAir = true;
     if (p.vy < -2.5) {
       p.squash = 0.72;
       p.landPulse = 0.18;
-    } else if (wasAir) {
+    } else {
       p.squash = 0.88;
     }
     p.y = top;
