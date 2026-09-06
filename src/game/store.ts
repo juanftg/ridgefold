@@ -24,9 +24,11 @@ type GameState = {
   setHud: (h: Partial<Hud>) => void;
 };
 
+const DEFAULT_SEED = "ridge-mist";
+
 export const useGame = create<GameState>((set, get) => ({
   phase: "title",
-  seed: randomSeedWord(),
+  seed: DEFAULT_SEED,
   hud: { seed: "", elevation: 0, hops: 0, hint: "none", grounded: true },
   setSeed: (s) => set({ seed: s }),
   play: () => set({ phase: "playing" }),
