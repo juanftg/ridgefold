@@ -15,6 +15,16 @@ npm install
 npm run dev
 ```
 
+If you already cloned it and `npm run dev` failed on Tailwind native bindings:
+
+```bash
+cd ridgefold
+git pull
+rm -rf node_modules package-lock.json
+npm install
+npm run dev
+```
+
 Vite will print a local URL (usually `http://localhost:5173`). Open that in your browser.
 
 | Input | Action |

@@ -1,17 +1,11 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-@theme {
+:root {
   --color-bg: #0e1210;
   --color-surface: #171d1a;
-  --color-surface-2: #1f2723;
   --color-fg: #f2efe8;
-  --color-fg-muted: #9aa399;
-  --color-fg-subtle: #6d766f;
-  --color-accent: #c5cec6;
-  --color-accent-fg: #0e1210;
-  --color-border: color-mix(in oklab, var(--color-fg) 14%, transparent);
-  --color-ring: #c5cec6;
-  --color-danger: #c45c4a;
   --radius-xs: 4px;
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -22,12 +16,7 @@
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
   --tracking-display: -0.03em;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --motion-micro: 80ms;
   --motion-quick: 150ms;
-  --motion-fast: 250ms;
-  --motion-slow: 400ms;
-  --motion-scale-modal: 0.96;
 }
 
 @layer base {
@@ -38,7 +27,6 @@
 
   html,
   body,
-  #app,
   #root {
     height: 100%;
     min-height: 100%;
@@ -51,14 +39,5 @@
     font-family: var(--font-sans);
     overflow: hidden;
     margin: 0;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-      animation-duration: 0.01ms !important;
-      transition-duration: 0.01ms !important;
-    }
   }
 }
