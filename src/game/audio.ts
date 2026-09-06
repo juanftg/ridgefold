@@ -79,6 +79,11 @@ export function createAudio() {
       beep(210, 0.12, "square", 0.05, -70);
       beep(90, 0.14, "sine", 0.04, -30);
     },
+    explode() {
+      beep(62, 0.38, "sine", 0.11, -18);
+      beep(148, 0.22, "square", 0.055, -90);
+      beep(44, 0.48, "triangle", 0.07, -8);
+    },
   };
 }
 

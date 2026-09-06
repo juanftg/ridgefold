@@ -24,6 +24,12 @@ export const ROCK_SPEED = 11.2;
 export const ROCK_COOLDOWN = 0.52;
 export const WOLF_FLEE_T = 5.4;
 export const HARE_ROCK_FLEE_T = 2.8;
+export const IDLE_FIRST = 6.8;
+export const IDLE_GAP = 5.1;
+export const FUSE_TIME = 1.28;
+export const FUSE_RANGE = 1.88;
+export const BLAST_RADIUS = 2.65;
+export const BLAST_DAMAGE = 3;
 
 export const BIOME_TOP = ["#cbb892", "#6e8f5c", "#4f7a58", "#8a8478", "#4a8ea0"] as const;
 export const BIOME_SIDE = ["#8d7a5c", "#5a4a38", "#3f4f40", "#5c5852", "#2c5c6c"] as const;
