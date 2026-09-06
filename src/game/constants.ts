@@ -18,9 +18,12 @@ export const ISO_UP = { x: -Math.SQRT1_2, z: -Math.SQRT1_2 };
 
 export const PLAYER_MAX_HP = 10;
 export const PLAYER_IFRAME = 0.85;
-export const STOMP_BOUNCE = 5.35;
 export const HARE_FLEE_R = 6.6;
 export const WOLF_AGGRO_R = 11.5;
+export const ROCK_SPEED = 11.2;
+export const ROCK_COOLDOWN = 0.52;
+export const WOLF_FLEE_T = 5.4;
+export const HARE_ROCK_FLEE_T = 2.8;
 
 export const BIOME_TOP = ["#cbb892", "#6e8f5c", "#4f7a58", "#8a8478", "#4a8ea0"] as const;
 export const BIOME_SIDE = ["#8d7a5c", "#5a4a38", "#3f4f40", "#5c5852", "#2c5c6c"] as const;
