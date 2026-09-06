@@ -22,11 +22,7 @@ export type Prop = {
 type Noise2 = (x: number, y: number) => number;
 
 type Noises = {
-  elev: Noise2;
-  warp: Noise2;
-  canyon: Noise2;
-  pit: Noise2;
-  moist: Noise2;
+  terrace: Noise2;
 };
 
 export type Chunk = {
@@ -46,6 +42,16 @@ export type World = {
   spawnH: number;
 };
 
+/** Region spacing. Interiors stay ≥ 10×10 of one height. */
+const REGION = 24;
+
+type RegionKind = "lake" | "flat" | "mountain";
+
+type Region = {
+  kind: RegionKind;
+  h: number;
+};
+
 export function chunkKey(cx: number, cz: number): string {
   return `${cx}:${cz}`;
 }
@@ -62,7 +68,7 @@ export function tileTop(cell: Cell): number {
   return cell.water ? 0 : cell.h * HEIGHT_UNIT;
 }
 
-function fbm(noise: Noise2, x: number, z: number, octaves = 5): number {
+function fbm(noise: Noise2, x: number, z: number, octaves = 4): number {
   let amp = 0.5;
   let freq = 1;
   let sum = 0;
@@ -71,49 +77,77 @@ function fbm(noise: Noise2, x: number, z: number, octaves = 5): number {
     sum += amp * noise(x * freq, z * freq);
     norm += amp;
     amp *= 0.5;
-    freq *= 2.07;
+    freq *= 2.03;
   }
   return sum / norm;
 }
 
 function makeNoises(seedNum: number): Noises {
   return {
-    elev: createNoise2D(mulberry32(seedNum)),
-    warp: createNoise2D(mulberry32(seedNum ^ 0x9e3779b9)),
-    canyon: createNoise2D(mulberry32(seedNum ^ 0x85ebca6b)),
-    pit: createNoise2D(mulberry32(seedNum ^ 0xc2b2ae35)),
-    moist: createNoise2D(mulberry32(seedNum ^ 0x27d4eb2f)),
+    terrace: createNoise2D(mulberry32(seedNum ^ 0x27d4eb2f)),
   };
 }
 
-export function sampleCellAt(noises: Noises, gx: number, gz: number): Cell {
-  const nx = gx * 0.021;
-  const nz = gz * 0.021;
-  const wx = nx + 0.18 * noises.warp(nx * 3.1, nz * 3.1);
-  const wz = nz + 0.18 * noises.warp(nx * 3.1 + 40, nz * 3.1 + 11);
+function regionRoll(ix: number, iz: number, salt: number): number {
+  let h = Math.imul(ix | 0, 0x45d9f3b) ^ Math.imul(iz | 0, 0x27d4eb2f) ^ salt;
+  h = Math.imul(h ^ (h >>> 16), 2246822507);
+  h = Math.imul(h ^ (h >>> 13), 3266489909);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
 
-  let e = 0.5 + 0.5 * fbm(noises.elev, wx * 3.4, wz * 3.4, 5);
-  e = Math.pow(Math.max(0, Math.min(1, e)), 1.18);
-  const h = Math.max(0, Math.round(e * 9));
-  const canyon = Math.abs(noises.canyon(wx * 2.55, wz * 2.55));
-  const pits = noises.pit(gx * 0.112, gz * 0.112);
-  const moist = 0.5 + 0.5 * fbm(noises.moist, nx * 4.2, nz * 4.2, 3);
+function regionAt(noises: Noises, seedNum: number, ix: number, iz: number): Region {
+  const roll = regionRoll(ix, iz, seedNum);
+  const terr = 0.5 + 0.5 * fbm(noises.terrace, ix * 0.075 + 4.1, iz * 0.075, 2);
+  if (roll < 0.15) return { kind: "lake", h: 0 };
+  if (roll > 0.84) {
+    const peak = 6 + Math.round(terr * 2);
+    return { kind: "mountain", h: peak };
+  }
+  const h = terr < 0.5 ? 2 : terr < 0.82 ? 3 : 4;
+  return { kind: "flat", h };
+}
 
-  let water = false;
-  if (canyon < 0.078 && h < 8) water = true;
-  if (pits < -0.5 && h < 6) water = true;
-  if (h === 0 && moist > 0.48) water = true;
-  if (h <= 1 && moist > 0.72) water = true;
+function landH(r: Region): number {
+  return r.kind === "lake" ? 1 : r.h;
+}
 
-  if (water) return { h: 0, water: true, biome: 4 };
+function biomeFor(h: number, kind: RegionKind): Biome {
+  if (h <= 1) return 0;
+  if (h >= 7) return 3;
+  if (h >= 5) return kind === "mountain" ? 3 : 2;
+  if (h >= 4) return 2;
+  return 1;
+}
 
-  let biome: Biome = 1;
-  if (h >= 7) biome = moist > 0.45 ? 2 : 3;
-  else if (h >= 4) biome = moist > 0.55 ? 2 : 1;
-  else if (h <= 1) biome = 0;
-  else biome = moist < 0.35 ? 0 : 1;
+export function sampleCellAt(noises: Noises, gx: number, gz: number, seedNum = 0): Cell {
+  const ix = Math.floor(gx / REGION);
+  const iz = Math.floor(gz / REGION);
+  const lx = ((gx % REGION) + REGION) % REGION;
+  const lz = ((gz % REGION) + REGION) % REGION;
+  const r = regionAt(noises, seedNum, ix, iz);
+  const rx = regionAt(noises, seedNum, ix + (lx < REGION / 2 ? -1 : 1), iz);
+  const rz = regionAt(noises, seedNum, ix, iz + (lz < REGION / 2 ? -1 : 1));
+  const dx = Math.min(lx, REGION - 1 - lx);
+  const dz = Math.min(lz, REGION - 1 - lz);
+  const inset = Math.min(dx, dz);
+  const near = dx < dz ? rx : rz;
+  const shore = landH(near);
 
-  return { h, water: false, biome };
+  if (r.kind === "lake") {
+    if (dx >= 2 && dz >= 2) return { h: 0, water: true, biome: 4 };
+    if (inset >= 1) return { h: 1, water: false, biome: 0 };
+    const h = Math.max(1, Math.round((1 + shore) * 0.5));
+    return { h, water: false, biome: biomeFor(h, "flat") };
+  }
+
+  const ramp = r.kind === "mountain" ? 7 : 4;
+  if (inset >= ramp) {
+    return { h: r.h, water: false, biome: biomeFor(r.h, r.kind) };
+  }
+
+  const t = 1 - inset / ramp;
+  const h = Math.max(1, Math.min(9, Math.round(r.h + (shore - r.h) * t * 0.5)));
+  return { h, water: false, biome: biomeFor(h, r.kind) };
 }
 
 function scatterChunkProps(seedNum: number, cx: number, cz: number, cells: Cell[]): Prop[] {
@@ -128,7 +162,7 @@ function scatterChunkProps(seedNum: number, cx: number, cz: number, cells: Cell[
       const [wx, wz] = gridToWorld(gx, gz);
       const top = tileTop(cell);
       const n = rng();
-      if (cell.biome >= 1 && cell.h >= 2 && cell.h <= 6 && n > 0.965) {
+      if (cell.biome === 1 && cell.h >= 2 && cell.h <= 4 && n > 0.978) {
         props.push({
           x: wx + (rng() - 0.5) * 0.25,
           y: top,
@@ -137,7 +171,7 @@ function scatterChunkProps(seedNum: number, cx: number, cz: number, cells: Cell[
           scale: 0.75 + rng() * 0.45,
           rot: rng() * Math.PI * 2,
         });
-      } else if (cell.biome === 3 && n > 0.94) {
+      } else if (cell.biome === 3 && n > 0.95) {
         props.push({
           x: wx + (rng() - 0.5) * 0.3,
           y: top,
@@ -161,7 +195,7 @@ export function ensureChunk(world: World, cx: number, cz: number): Chunk {
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       const gx = cx * CHUNK_SIZE + lx;
       const gz = cz * CHUNK_SIZE + lz;
-      cells[lz * CHUNK_SIZE + lx] = sampleCellAt(world.noises, gx, gz);
+      cells[lz * CHUNK_SIZE + lx] = sampleCellAt(world.noises, gx, gz, world.seedNum);
     }
   }
   const chunk: Chunk = {
@@ -205,10 +239,22 @@ export function pruneChunks(world: World, x: number, z: number, keep = 4) {
   }
 }
 
+function isSpawnPad(world: World, gx: number, gz: number): boolean {
+  const c = cellAt(world, gx, gz);
+  if (c.water || c.h < 2 || c.h > 4) return false;
+  for (let dz = -5; dz <= 5; dz++) {
+    for (let dx = -5; dx <= 5; dx++) {
+      const n = cellAt(world, gx + dx, gz + dz);
+      if (n.water || n.h !== c.h) return false;
+    }
+  }
+  return true;
+}
+
 function findSpawn(world: World): { x: number; z: number; h: number } {
-  ensureAround(world, 0, 0, 40);
+  ensureAround(world, 0, 0, 56);
   const spiral: [number, number][] = [[0, 0]];
-  for (let r = 1; r <= 36; r++) {
+  for (let r = 1; r <= 48; r++) {
     for (let x = -r; x <= r; x++) {
       spiral.push([x, -r], [x, r]);
     }
@@ -217,8 +263,15 @@ function findSpawn(world: World): { x: number; z: number; h: number } {
     }
   }
   for (const [gx, gz] of spiral) {
+    if (isSpawnPad(world, gx, gz)) {
+      const cell = cellAt(world, gx, gz);
+      const [x, z] = gridToWorld(gx, gz);
+      return { x, z, h: cell.h };
+    }
+  }
+  for (const [gx, gz] of spiral) {
     const cell = cellAt(world, gx, gz);
-    if (!cell.water && cell.h >= 2 && cell.h <= 5) {
+    if (!cell.water && cell.h >= 2 && cell.h <= 4) {
       const [x, z] = gridToWorld(gx, gz);
       return { x, z, h: cell.h };
     }
