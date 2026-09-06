@@ -136,8 +136,9 @@ export function Overlay() {
             <p className="kicker">Endless isometric wander</p>
             <h1 className="title">Ridgefold</h1>
             <p className="lede">
-              Hills never end. Lakes sit at the floor of the land — wade them,
-              don&apos;t fall through. Jump the ledges you cannot walk.
+              Wide shelves of level ground, hill climbs up to mountain mesas,
+              and broad lakes at the floor — wade them, don't fall through.
+              The camera glides as you walk.
             </p>
             <label className="field">
               Seed
