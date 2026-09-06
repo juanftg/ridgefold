@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { createAudio } from "./audio";
 import { BIOME_SIDE, BIOME_TOP, CAM_ROT_SPEED, FIXED_DT, HEIGHT_UNIT } from "./constants";
-import { createInput } from "./input";
+import { createInput, screenToWorld } from "./input";
 import { playerSpeed, spawnPlayer, stepPlayer, type Player } from "./sim";
 import { useGame } from "./store";
 import {
@@ -19,6 +19,9 @@ type Probe = {
   getSpeed: () => number;
   setKeys: (codes: string[]) => void;
   getPos: () => { x: number; y: number; z: number; grounded: boolean };
+  getCamYaw?: () => number;
+  getWalkPhase?: () => number;
+  getZoom?: () => number;
 };
 
 declare global {
@@ -99,19 +102,11 @@ export function IsoView({ seed }: { seed: string }) {
       setTouchJump: input.setTouchJump,
       setTouchYaw: input.setTouchYaw,
     };
-    const probe: Probe = {
-      getYaw: () => player.yaw,
-      getSpeed: () => playerSpeed(player),
-      setKeys: (codes) => input.setKeys(codes),
-      getPos: () => ({ x: player.x, y: player.y, z: player.z, grounded: player.grounded }),
-    };
-    window.__controlsTest = probe;
-    window.__ridgefold = probe;
 
     let camX = 0;
     let camY = 0;
     let camYaw = 0;
-    let zoom = 1.35;
+    let zoom = 2.72;
     let acc = 0;
     let hudT = 0;
     let last = performance.now();
@@ -122,6 +117,19 @@ export function IsoView({ seed }: { seed: string }) {
     let dragId: number | null = null;
     let dragX = 0;
     let camInited = false;
+    let lastFacing = 0;
+
+    const probe: Probe = {
+      getYaw: () => player.yaw,
+      getSpeed: () => playerSpeed(player),
+      setKeys: (codes) => input.setKeys(codes),
+      getPos: () => ({ x: player.x, y: player.y, z: player.z, grounded: player.grounded }),
+      getCamYaw: () => camYaw,
+      getWalkPhase: () => player.walkPhase,
+      getZoom: () => zoom,
+    };
+    window.__controlsTest = probe;
+    window.__ridgefold = probe;
 
     const project = (x: number, z: number, elev: number): [number, number] => {
       const tw = BASE_TW * zoom;
@@ -187,33 +195,124 @@ export function IsoView({ seed }: { seed: string }) {
     const drawExplorer = (p: Player) => {
       const elev = p.y / HEIGHT_UNIT;
       const [sx, sy] = project(p.x, p.z, elev);
-      const k = zoom;
-      ctx.fillStyle = p.onWater ? "rgba(40, 90, 110, 0.28)" : "rgba(18, 22, 20, 0.32)";
-      ctx.beginPath();
-      ctx.ellipse(sx, sy + 3 * k, 11 * k, 6 * k, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.save();
-      ctx.translate(sx, sy);
+      const k = zoom * 1.52;
+      const speed = Math.hypot(p.vx, p.vz);
+      const walking = p.grounded && speed > 0.28;
+      const ph = p.walkPhase;
+      const swing = walking ? Math.sin(ph) : 0;
+      const bob = walking ? Math.abs(Math.sin(ph)) * 5.1 : p.grounded ? 0 : 3.4;
+      const [ax, ay] = project(p.x + p.vx * 0.14, p.z + p.vz * 0.14, elev);
+      const sdx = ax - sx;
+      const sdy = ay - sy;
+      if (walking && sdx * sdx + sdy * sdy > 0.18) {
+        lastFacing = Math.abs(sdx) >= Math.abs(sdy) ? (sdx >= 0 ? 1 : 3) : sdy >= 0 ? 0 : 2;
+      }
+      const facing = lastFacing;
+      const flip = facing === 3 ? -1 : 1;
+      const sideOn = facing === 1 || facing === 3;
+      const rear = facing === 2;
       const s = p.squash;
-      ctx.scale(k / Math.sqrt(s), k * s);
-      const swing = p.grounded ? Math.sin(p.walkPhase) * 5 : 3;
-      ctx.fillStyle = "#2a302c";
-      ctx.fillRect(-7, -8, 5, 10);
-      ctx.fillRect(2, -8 + swing * 0.15, 5, 10);
-      ctx.fillStyle = "#3d4540";
-      roundRect(ctx, -8, -22, 16, 16, 4);
-      ctx.fill();
-      ctx.fillStyle = "#4f5b54";
-      roundRect(ctx, -6, -18, 8, 10, 2);
-      ctx.fill();
-      ctx.fillStyle = "#e8dcc8";
+
+      ctx.fillStyle = p.onWater ? "rgba(36, 88, 108, 0.4)" : "rgba(16, 20, 18, 0.34)";
       ctx.beginPath();
-      ctx.arc(0, -28, 6.2, 0, Math.PI * 2);
+      ctx.ellipse(sx, sy + 6 * k, (11 + (walking ? 3.4 : 0)) * k, 5.4 * k, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "#2c3330";
-      ctx.beginPath();
-      ctx.ellipse(0, -31, 6.4, 4.2, 0.1, 0, Math.PI * 2);
-      ctx.fill();
+
+      ctx.save();
+      ctx.translate(sx, sy - bob * k);
+      ctx.scale((flip * k) / Math.sqrt(s), k * s);
+
+      const aL = walking ? -swing * (sideOn ? 0.78 : 0.48) : 0.1;
+      const aR = walking ? swing * (sideOn ? 0.78 : 0.48) : 0.1;
+      const lL = walking ? -swing * (sideOn ? 0.7 : 0.42) : 0.06;
+      const lR = walking ? swing * (sideOn ? 0.7 : 0.42) : 0.06;
+
+      const arm = (shX: number, shY: number, a: number, color: string) => {
+        ctx.save();
+        ctx.translate(shX, shY);
+        ctx.rotate(a);
+        ctx.fillStyle = color;
+        roundRect(ctx, -2.1, -1, 4.2, 12.2, 1.9);
+        ctx.fill();
+        ctx.fillStyle = "#e8dcc8";
+        ctx.beginPath();
+        ctx.ellipse(0.2, 12.4, 1.9, 1.9, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      };
+
+      const leg = (hipX: number, hipY: number, a: number, color: string, lead: boolean) => {
+        const thigh = 8.6;
+        const shin = 7.8;
+        const knee = walking
+          ? 0.28 + Math.max(0, -Math.sin(ph + (lead ? 0 : Math.PI))) * 0.55
+          : 0.1;
+        ctx.save();
+        ctx.translate(hipX, hipY);
+        ctx.rotate(a);
+        ctx.fillStyle = color;
+        roundRect(ctx, -2.7, -1, 5.4, thigh, 2.3);
+        ctx.fill();
+        ctx.translate(0, thigh - 0.5);
+        ctx.rotate(knee);
+        roundRect(ctx, -2.3, -0.5, 4.6, shin, 2);
+        ctx.fill();
+        ctx.fillStyle = "#151a17";
+        ctx.beginPath();
+        ctx.ellipse(1.4, shin + 0.2, 3.5, 1.75, 0.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      };
+
+      if (rear) {
+        arm(5.6, -23, aL, "#2f3a34");
+        leg(-3.4, -10.4, lL, "#1c211e", false);
+        ctx.fillStyle = "#3a433e";
+        roundRect(ctx, -9, -25.4, 18, 17, 4.8);
+        ctx.fill();
+        ctx.fillStyle = "#2a322e";
+        roundRect(ctx, -6.4, -23.4, 12.8, 10.4, 3);
+        ctx.fill();
+        leg(3.6, -10.4, lR, "#262c28", true);
+        arm(-6, -23, aR, "#3d4540");
+        ctx.fillStyle = "#e8dcc8";
+        ctx.beginPath();
+        ctx.arc(0, -30.8, 6.7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#2c3330";
+        ctx.beginPath();
+        ctx.ellipse(0, -34, 7, 4.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        arm(sideOn ? 1.6 : 6.4, -23, aL, "#2f3a34");
+        leg(sideOn ? -1.4 : -3.8, -10.4, lL, "#1c211e", false);
+        ctx.fillStyle = "#3d4540";
+        roundRect(ctx, sideOn ? -6.6 : -9, -25.4, sideOn ? 14 : 18, 17.2, 4.8);
+        ctx.fill();
+        ctx.fillStyle = "#4f5b54";
+        roundRect(ctx, sideOn ? -4.4 : -6.6, -21.8, sideOn ? 8.4 : 10, 11.2, 2.7);
+        ctx.fill();
+        leg(sideOn ? 1.8 : 3.8, -10.4, lR, "#2a302c", true);
+        arm(sideOn ? -1.4 : -6.6, -23, aR, "#3d4540");
+        ctx.fillStyle = "#e8dcc8";
+        ctx.beginPath();
+        ctx.arc(sideOn ? 1.4 : 0.4, -30.8, 6.7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#2c3330";
+        ctx.beginPath();
+        ctx.ellipse(sideOn ? 1.6 : 0.3, -34, 6.9, 4.4, sideOn ? 0.22 : 0.1, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#1a1e1c";
+        ctx.beginPath();
+        ctx.arc(sideOn ? 3.8 : 2.4, -30, 1.25, 0, 0, Math.PI * 2);
+        ctx.fill();
+        if (!sideOn) {
+          ctx.beginPath();
+          ctx.arc(-1.8, -30, 1.25, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
       ctx.restore();
     };
 
@@ -232,7 +331,7 @@ export function IsoView({ seed }: { seed: string }) {
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const next = zoom * (e.deltaY > 0 ? 0.92 : 1.08);
-      zoom = Math.max(0.95, Math.min(2.15, next));
+      zoom = Math.max(1.65, Math.min(4.15, next));
     };
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0 && e.button !== 2 && e.button !== 1) return;
@@ -262,8 +361,8 @@ export function IsoView({ seed }: { seed: string }) {
       const view = Math.ceil(18 / zoom) + 2;
       ensureAround(world, player.x, player.z, view + 6);
       const elev = player.y / HEIGHT_UNIT;
-      const lookX = player.x + player.vx * 0.38;
-      const lookZ = player.z + player.vz * 0.38;
+      const lookX = player.x + player.vx * 0.2;
+      const lookZ = player.z + player.vz * 0.2;
       const [px, py] = project(lookX, lookZ, elev);
       if (!camInited) {
         camX = px;
@@ -283,7 +382,7 @@ export function IsoView({ seed }: { seed: string }) {
       ctx.fillRect(0, 0, cssW, cssH);
 
       ctx.save();
-      ctx.translate(cssW * 0.5 - camX, cssH * 0.58 - camY);
+      ctx.translate(cssW * 0.5 - camX, cssH * 0.5 - camY);
 
       const gx0 = Math.floor(player.x - view);
       const gx1 = Math.ceil(player.x + view);
@@ -370,6 +469,9 @@ export function IsoView({ seed }: { seed: string }) {
           if (sample.pausePressed) pause();
           camYaw += sample.yawRate * CAM_ROT_SPEED * FIXED_DT;
           input.setCamYaw(camYaw);
+          const mapped = screenToWorld(sample.moveX, sample.moveY, camYaw);
+          sample.worldX = mapped.worldX;
+          sample.worldZ = mapped.worldZ;
           stepPlayer(world, player, sample, FIXED_DT);
           if (player.hops > hops) audio.jump();
           if (player.grounded && !wasGrounded && player.landPulse > 0) audio.land();
