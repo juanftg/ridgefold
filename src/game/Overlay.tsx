@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Compass, Mountain, Pause, Play } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Compass, Mountain, Pause, Play, RotateCcw, RotateCw, Waves } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useGame } from "./store";
 
@@ -11,14 +11,12 @@ function TouchStick() {
   useEffect(() => {
     const el = pad.current;
     if (!el) return;
-
     const setMove = (x: number, y: number) => {
       const api = (window as unknown as {
         __ridgeInput?: { setTouchMove: (x: number, y: number) => void };
       }).__ridgeInput;
       api?.setTouchMove(x, y);
     };
-
     const read = (clientX: number, clientY: number) => {
       const r = el.getBoundingClientRect();
       const cx = r.left + r.width / 2;
@@ -33,7 +31,6 @@ function TouchStick() {
       setKnob({ x, y });
       setMove(x, y);
     };
-
     const down = (e: PointerEvent) => {
       active.current = e.pointerId;
       el.setPointerCapture(e.pointerId);
@@ -49,7 +46,6 @@ function TouchStick() {
       setKnob({ x: 0, y: 0 });
       setMove(0, 0);
     };
-
     el.addEventListener("pointerdown", down);
     el.addEventListener("pointermove", move);
     el.addEventListener("pointerup", up);
@@ -66,9 +62,7 @@ function TouchStick() {
     <div ref={pad} className="stick" aria-label="Move">
       <div
         className="stick-knob"
-        style={{
-          transform: `translate(${knob.x * 36}px, ${-knob.y * 36}px)`,
-        }}
+        style={{ transform: `translate(${knob.x * 36}px, ${-knob.y * 36}px)` }}
       />
     </div>
   );
@@ -98,6 +92,30 @@ function JumpButton() {
   );
 }
 
+function YawButton({ dir, label, children }: { dir: number; label: string; children: ReactNode }) {
+  const press = (v: boolean) => {
+    const api = (window as unknown as {
+      __ridgeInput?: { setTouchYaw: (v: number) => void };
+    }).__ridgeInput;
+    api?.setTouchYaw(v ? dir : 0);
+  };
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      className="yaw"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        press(true);
+      }}
+      onPointerUp={() => press(false)}
+      onPointerCancel={() => press(false)}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function Overlay() {
   const phase = useGame((s) => s.phase);
   const seed = useGame((s) => s.seed);
@@ -108,24 +126,18 @@ export function Overlay() {
   const toTitle = useGame((s) => s.toTitle);
   const newFold = useGame((s) => s.newFold);
   const hud = useGame((s) => s.hud);
-
-  const hint =
-    hud.hint === "gap"
-      ? "The fold breaks here"
-      : hud.hint === "ledge"
-        ? "Too steep \u2014 jump"
-        : null;
+  const hint = hud.hint === "ledge" ? "Too steep \u2014 jump" : null;
 
   return (
     <div className="overlay">
       {phase === "title" && (
         <div className="shade title">
           <div className="card">
-            <p className="kicker">Isometric wander</p>
+            <p className="kicker">Endless isometric wander</p>
             <h1 className="title">Ridgefold</h1>
             <p className="lede">
-              Hills rise and fall underfoot. Jump the ledges you cannot walk.
-              Where the land splits, you stop.
+              Hills never end. Lakes sit at the floor of the land — wade them,
+              don&apos;t fall through. Jump the ledges you cannot walk.
             </p>
             <label className="field">
               Seed
@@ -145,8 +157,8 @@ export function Overlay() {
               </Button>
             </div>
             <p className="hint">
-              WASD or arrows move on screen. Space jumps. Gaps cannot be walked;
-              a short leap can clear a one-tile break or a high step.
+              WASD moves on screen. Space jumps. Q / E (or drag) turns the view.
+              Scroll zooms. The land keeps generating as you walk.
             </p>
           </div>
         </div>
@@ -166,6 +178,12 @@ export function Overlay() {
                   {hud.elevation.toFixed(1)}
                 </span>
                 <span className="subtle">{hud.hops} jumps</span>
+                {hud.onWater && (
+                  <span className="muted">
+                    <Waves size={14} />
+                    lake
+                  </span>
+                )}
               </div>
             </div>
             {hint && <div className="toast">{hint}</div>}
@@ -181,11 +199,21 @@ export function Overlay() {
             </Button>
           </div>
           <div className="hint-keys">
-            <span>WASD roam \u00b7 Space jump \u00b7 Esc pause</span>
+            <span>WASD roam \u00b7 Space jump \u00b7 Q/E turn \u00b7 drag rotate \u00b7 scroll zoom</span>
           </div>
           <div className="touch-bar">
             <TouchStick />
-            <JumpButton />
+            <div className="actions">
+              <div className="yaw-row">
+                <YawButton dir={1} label="Turn left">
+                  <RotateCcw size={16} />
+                </YawButton>
+                <YawButton dir={-1} label="Turn right">
+                  <RotateCw size={16} />
+                </YawButton>
+              </div>
+              <JumpButton />
+            </div>
           </div>
         </>
       )}

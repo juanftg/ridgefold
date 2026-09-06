@@ -1,29 +1,16 @@
 # Ridgefold
 
-Isometric wanderer. A seeded fold of hills, mesas, and missing land.
-
-Walk the slopes. Jump ledges that are too steep. Gaps in the fold stop you unless you can leap them.
+Endless isometric wanderer. Hills never run out. Lakes sit at the floor of the land — wade them, do not fall through.
 
 ## Run it
 
-You need **Node.js 20+** ([nodejs.org](https://nodejs.org)).
-
-If this folder already exists, reset to the latest (old Tailwind/PostCSS files will break Vite):
+Node.js 20+. If you already cloned:
 
 ```bash
-cd /Users/jtiscareno/node/ridgefold
+cd ridgefold
 git fetch
 git reset --hard origin/main
 rm -rf node_modules package-lock.json
-npm install
-npm run dev
-```
-
-Fresh clone:
-
-```bash
-git clone https://github.com/juanftg/ridgefold.git
-cd ridgefold
 npm install
 npm run dev
 ```
@@ -32,11 +19,20 @@ Open the URL Vite prints (usually `http://localhost:5173`).
 
 | Input | Action |
 | --- | --- |
-| WASD / arrows | Move on screen (W is up-screen) |
-| Space | Jump — climb a high step or clear a one-tile break |
+| WASD / arrows | Move on screen (W is up-screen, even after you turn) |
+| Space | Jump up ledges |
+| Q / E (or drag) | Rotate the camera |
+| Scroll | Zoom |
 | Esc / P | Pause |
-| Touch | Left stick + Jump |
+| Touch | Stick + turn buttons + Jump |
+
+## How the land works
+
+- **Endless** — chunks generate around you as you walk. There is no map edge.
+- **Lakes** — former holes are water at floor height. You wade; you never fall through.
+- **Ledges** — walk up 1 step. Jump to climb higher faces.
+- **Camera** — follows you with look-ahead. Q/E or drag to orbit. Scroll to zoom.
 
 ## Stack
 
-React + Vite + Canvas 2D. No Tailwind. Game code lives in `src/game/`.
+React + Vite + Canvas 2D. Seeded `simplex-noise`. Game code lives in `src/game/`.
