@@ -22,6 +22,7 @@ type Probe = {
   getCamYaw?: () => number;
   getWalkPhase?: () => number;
   getZoom?: () => number;
+  getCam?: () => { x: number; z: number; elev: number; sx: number; sy: number };
 };
 
 declare global {
@@ -118,6 +119,11 @@ export function IsoView({ seed }: { seed: string }) {
     let dragX = 0;
     let camInited = false;
     let lastFacing = 0;
+    let camWX = player.x;
+    let camWZ = player.z;
+    let camElev = player.y / HEIGHT_UNIT;
+    let lookVX = 0;
+    let lookVZ = 0;
 
     const probe: Probe = {
       getYaw: () => player.yaw,
@@ -127,6 +133,7 @@ export function IsoView({ seed }: { seed: string }) {
       getCamYaw: () => camYaw,
       getWalkPhase: () => player.walkPhase,
       getZoom: () => zoom,
+      getCam: () => ({ x: camWX, z: camWZ, elev: camElev, sx: camX, sy: camY }),
     };
     window.__controlsTest = probe;
     window.__ridgefold = probe;
@@ -304,11 +311,11 @@ export function IsoView({ seed }: { seed: string }) {
         ctx.fill();
         ctx.fillStyle = "#1a1e1c";
         ctx.beginPath();
-        ctx.arc(sideOn ? 3.8 : 2.4, -30, 1.25, 0, 0, Math.PI * 2);
+        ctx.arc(sideOn ? 3.8 : 2.4, -30, 1.25, 0, Math.PI * 2);
         ctx.fill();
         if (!sideOn) {
           ctx.beginPath();
-          ctx.arc(-1.8, -30, 1.25, 0, 0, Math.PI * 2);
+          ctx.arc(-1.8, -30, 1.25, 0, Math.PI * 2);
           ctx.fill();
         }
       }
@@ -360,19 +367,25 @@ export function IsoView({ seed }: { seed: string }) {
     const draw = (cssW: number, cssH: number, t: number, dt: number) => {
       const view = Math.ceil(18 / zoom) + 2;
       ensureAround(world, player.x, player.z, view + 6);
-      const elev = player.y / HEIGHT_UNIT;
-      const lookX = player.x + player.vx * 0.2;
-      const lookZ = player.z + player.vz * 0.2;
-      const [px, py] = project(lookX, lookZ, elev);
       if (!camInited) {
-        camX = px;
-        camY = py;
+        camWX = player.x;
+        camWZ = player.z;
+        camElev = player.y / HEIGHT_UNIT;
         camInited = true;
       } else {
-        const follow = 1 - Math.exp(-20 * dt);
-        camX += (px - camX) * follow;
-        camY += (py - camY) * follow;
+        const kLook = 1 - Math.exp(-1.9 * dt);
+        const kPos = 1 - Math.exp(-3.2 * dt);
+        const kElev = 1 - Math.exp(-(player.grounded ? 1.55 : 7.2) * dt);
+        const ahead = player.grounded ? 0.09 : 0.03;
+        lookVX += (player.vx * ahead - lookVX) * kLook;
+        lookVZ += (player.vz * ahead - lookVZ) * kLook;
+        camWX += (player.x + lookVX - camWX) * kPos;
+        camWZ += (player.z + lookVZ - camWZ) * kPos;
+        camElev += (player.y / HEIGHT_UNIT - camElev) * kElev;
       }
+      const [px, py] = project(camWX, camWZ, camElev);
+      camX = px;
+      camY = py;
 
       const sky = ctx.createLinearGradient(0, 0, 0, cssH);
       sky.addColorStop(0, "#8ea4b0");
@@ -406,7 +419,7 @@ export function IsoView({ seed }: { seed: string }) {
           i: -1,
           x: player.x,
           z: player.z,
-          h: elev,
+          h: player.y / HEIGHT_UNIT,
           biome: 0,
           water: false,
         },
