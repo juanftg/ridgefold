@@ -1,5 +1,5 @@
 import { BIOME_SIDE, BIOME_TOP, HEIGHT_UNIT } from "./constants";
-import type { Mob } from "./mobs";
+import type { Mob, Rock } from "./mobs";
 import type { Player } from "./sim";
 import { cellAt, type Prop, type World } from "./terrain";
 
@@ -400,7 +400,7 @@ export function createPaint(args: {
       ctx.ellipse(sideOn ? -2.8 : 0, -4.6, 1.1, 1.1, 0, 0, Math.PI * 2);
       ctx.fill();
     } else {
-      const fur = flash ? "#8a7a72" : "#5c5752";
+      const fur = flash ? "#8a7a72" : m.fleeT > 0 ? "#6a635c" : "#5c5752";
       const dark = "#3a3530";
       ctx.fillStyle = fur;
       ctx.beginPath();
@@ -460,5 +460,30 @@ export function createPaint(args: {
     ctx.restore();
   };
 
-  return { drawBlock, drawProp, drawExplorer, drawMob };
+  const drawRock = (r: Rock) => {
+    const zoom = getZoom();
+    const elev = r.y / HEIGHT_UNIT;
+    const [sx, sy] = project(r.x, r.z, elev);
+    const k = zoom * 0.9;
+    const [gsx, gsy] = project(r.x, r.z, 0.2);
+    ctx.fillStyle = "rgba(16, 20, 18, 0.22)";
+    ctx.beginPath();
+    ctx.ellipse(gsx, gsy + 1.2 * k, 2.4 * k, 1.2 * k, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#8a8074";
+    ctx.beginPath();
+    ctx.ellipse(sx, sy - 1.1 * k, 2.15 * k, 1.55 * k, 0.35, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#c4b9a8";
+    ctx.beginPath();
+    ctx.ellipse(sx - 0.5 * k, sy - 1.7 * k, 0.85 * k, 0.55 * k, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#5c564c";
+    ctx.lineWidth = Math.max(0.7, zoom * 0.35);
+    ctx.beginPath();
+    ctx.ellipse(sx, sy - 1.1 * k, 2.15 * k, 1.55 * k, 0.35, 0, Math.PI * 2);
+    ctx.stroke();
+  };
+
+  return { drawBlock, drawProp, drawExplorer, drawMob, drawRock };
 }
