@@ -7,6 +7,7 @@ import {
   JUMP_CLIMB,
   JUMP_SPEED,
   MOVE_SPEED,
+  PLAYER_MAX_HP,
   PLAYER_RADIUS,
   WALK_STEP,
   WATER_SPEED,
@@ -34,6 +35,11 @@ export type Player = {
   landPulse: number;
   walkPhase: number;
   onWater: boolean;
+  hp: number;
+  maxHp: number;
+  iFrame: number;
+  hurtT: number;
+  radius: number;
 };
 
 export function spawnPlayer(world: World): Player {
@@ -56,6 +62,11 @@ export function spawnPlayer(world: World): Player {
     landPulse: 0,
     walkPhase: 0,
     onWater: false,
+    hp: PLAYER_MAX_HP,
+    maxHp: PLAYER_MAX_HP,
+    iFrame: 0,
+    hurtT: 0,
+    radius: PLAYER_RADIUS,
   };
 }
 
@@ -92,6 +103,8 @@ function blockedAt(
 export function stepPlayer(world: World, p: Player, input: SampledInput, dt = FIXED_DT) {
   p.hintT = Math.max(0, p.hintT - dt);
   p.landPulse = Math.max(0, p.landPulse - dt);
+  p.iFrame = Math.max(0, p.iFrame - dt);
+  p.hurtT = Math.max(0, p.hurtT - dt);
   p.squash += (1 - p.squash) * Math.min(1, dt * 10);
 
   if (input.jumpPressed) p.jumpBuf = JUMP_BUFFER;
