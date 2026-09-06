@@ -93,6 +93,30 @@ function JumpButton() {
   );
 }
 
+function ThrowButton() {
+  const press = (v: boolean) => {
+    const api = (window as unknown as {
+      __ridgeInput?: { setTouchThrow: (v: boolean) => void };
+    }).__ridgeInput;
+    api?.setTouchThrow(v);
+  };
+  return (
+    <button
+      type="button"
+      aria-label="Throw rock"
+      className="throw"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        press(true);
+      }}
+      onPointerUp={() => press(false)}
+      onPointerCancel={() => press(false)}
+    >
+      Rock
+    </button>
+  );
+}
+
 function YawButton({ dir, label, children }: { dir: number; label: string; children: ReactNode }) {
   const press = (v: boolean) => {
     const api = (window as unknown as {
@@ -150,7 +174,8 @@ export function Overlay() {
             <h1 className="title">Ridgefold</h1>
             <p className="lede">
               Wide shelves, hill-climb mesas, and lakes at the floor. Hares share
-              the fold; wolves hunt. Ten hits and you drop — stomp them from above.
+              the fold; wolves hunt. Ten hits and you drop. Fling a rock (F)
+              to send a wolf running.
             </p>
             <label className="field">
               Seed
@@ -170,8 +195,9 @@ export function Overlay() {
               </Button>
             </div>
             <p className="hint">
-              WASD moves on screen. Space jumps. Q / E (or drag) turns the view.
-              Scroll zooms. Jump on a wolf to stomp it.
+              WASD and arrows always match the screen: up stays up as you rotate
+              the camera. Space jumps. F throws a rock. Q / E (or drag) turns.
+              Scroll zooms.
             </p>
           </div>
         </div>
@@ -215,7 +241,7 @@ export function Overlay() {
             </div>
           )}
           <div className="hint-keys">
-            <span>WASD roam \u00b7 Space jump \u00b7 Q/E turn \u00b7 stomp wolves</span>
+            <span>WASD roam \u00b7 Space jump \u00b7 F rock \u00b7 Q/E turn</span>
           </div>
           <div className="touch-bar">
             <TouchStick />
@@ -228,7 +254,10 @@ export function Overlay() {
                   <RotateCw size={16} />
                 </YawButton>
               </div>
-              <JumpButton />
+              <div className="throw-row">
+                <ThrowButton />
+                <JumpButton />
+              </div>
             </div>
           </div>
         </>

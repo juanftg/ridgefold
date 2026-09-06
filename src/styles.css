@@ -295,6 +295,45 @@ button:not(:disabled),
   letter-spacing: 0.04em;
 }
 
+.throw {
+  width: 64px;
+  height: 64px;
+  touch-action: none;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.yaw-row,
+.throw-row {
+  display: flex;
+  gap: 8px;
+}
+
+.yaw {
+  display: flex;
+  width: 48px;
+  height: 48px;
+  touch-action: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+}
+
 .pause-title {
   font-family: var(--font-display);
   font-size: 1.5rem;
