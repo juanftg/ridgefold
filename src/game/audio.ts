@@ -69,6 +69,13 @@ export function createAudio() {
     fall() {
       beep(220, 0.28, "sine", 0.05, -160);
     },
+    hurt() {
+      beep(180, 0.16, "square", 0.055, -90);
+    },
+    stomp() {
+      beep(260, 0.11, "triangle", 0.06, -140);
+      beep(520, 0.08, "sine", 0.03, 80);
+    },
   };
 }
 
