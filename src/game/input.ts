@@ -6,6 +6,7 @@ export type SampledInput = {
   jumpHeld: boolean;
   jumpPressed: boolean;
   pausePressed: boolean;
+  yawRate: number;
   worldX: number;
   worldZ: number;
 };
@@ -15,6 +16,12 @@ function radialDeadzone(x: number, y: number, dz = 0.16): { x: number; y: number
   if (m < dz) return { x: 0, y: 0 };
   const scale = ((m - dz) / (1 - dz)) / m;
   return { x: x * scale, y: y * scale };
+}
+
+function rotateXZ(x: number, z: number, a: number): [number, number] {
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  return [x * c - z * s, x * s + z * c];
 }
 
 const GAME_CODES = new Set([
@@ -29,6 +36,12 @@ const GAME_CODES = new Set([
   "Space",
   "KeyP",
   "Escape",
+  "KeyQ",
+  "KeyE",
+  "BracketLeft",
+  "BracketRight",
+  "Comma",
+  "Period",
 ]);
 
 export function createInput() {
@@ -37,8 +50,10 @@ export function createInput() {
   let touchX = 0;
   let touchY = 0;
   let touchJump = false;
+  let touchYaw = 0;
   let prevJump = false;
   let prevPause = false;
+  let camYaw = 0;
 
   const onDown = (e: KeyboardEvent) => {
     if (GAME_CODES.has(e.code)) e.preventDefault();
@@ -65,8 +80,17 @@ export function createInput() {
   function setTouchJump(v: boolean) {
     touchJump = v;
   }
+  function setTouchYaw(v: number) {
+    touchYaw = v;
+  }
   function setKeys(codes: string[]) {
     injected = codes;
+  }
+  function setCamYaw(v: number) {
+    camYaw = v;
+  }
+  function getCamYaw() {
+    return camYaw;
   }
 
   function held(): Set<string> {
@@ -78,10 +102,13 @@ export function createInput() {
     const k = held();
     let mx = 0;
     let my = 0;
+    let yawRate = touchYaw;
     if (k.has("KeyD") || k.has("ArrowRight")) mx += 1;
     if (k.has("KeyA") || k.has("ArrowLeft")) mx -= 1;
     if (k.has("KeyW") || k.has("ArrowUp")) my += 1;
     if (k.has("KeyS") || k.has("ArrowDown")) my -= 1;
+    if (k.has("KeyQ") || k.has("BracketLeft") || k.has("Comma")) yawRate += 1;
+    if (k.has("KeyE") || k.has("BracketRight") || k.has("Period")) yawRate -= 1;
 
     let padJump = false;
     const pads = typeof navigator !== "undefined" ? navigator.getGamepads?.() ?? [] : [];
@@ -90,6 +117,10 @@ export function createInput() {
       const stick = radialDeadzone(pad.axes[0] ?? 0, -(pad.axes[1] ?? 0));
       mx += stick.x;
       my += stick.y;
+      const look = radialDeadzone(pad.axes[2] ?? 0, pad.axes[3] ?? 0, 0.18);
+      yawRate -= look.x;
+      if (pad.buttons[4]?.pressed) yawRate += 1;
+      if (pad.buttons[5]?.pressed) yawRate -= 1;
       if (pad.buttons[0]?.pressed) padJump = true;
       if (pad.buttons[12]?.pressed) my += 1;
       if (pad.buttons[13]?.pressed) my -= 1;
@@ -101,6 +132,7 @@ export function createInput() {
     my += touchY;
     mx = Math.max(-1, Math.min(1, mx));
     my = Math.max(-1, Math.min(1, my));
+    yawRate = Math.max(-1, Math.min(1, yawRate));
     const mag = Math.hypot(mx, my);
     if (mag > 1) {
       mx /= mag;
@@ -115,8 +147,10 @@ export function createInput() {
     const pausePressed = pauseHeld && !prevPause;
     prevPause = pauseHeld;
 
-    const worldX = ISO_RIGHT.x * mx + ISO_UP.x * my;
-    const worldZ = ISO_RIGHT.z * mx + ISO_UP.z * my;
+    const [rx, rz] = rotateXZ(ISO_RIGHT.x, ISO_RIGHT.z, camYaw);
+    const [ux, uz] = rotateXZ(ISO_UP.x, ISO_UP.z, camYaw);
+    const worldX = rx * mx + ux * my;
+    const worldZ = rz * mx + uz * my;
 
     return {
       moveX: mx,
@@ -124,6 +158,7 @@ export function createInput() {
       jumpHeld,
       jumpPressed,
       pausePressed,
+      yawRate,
       worldX,
       worldZ,
     };
@@ -136,7 +171,17 @@ export function createInput() {
     window.removeEventListener("blur", clear);
   }
 
-  return { sample, setTouchMove, setTouchJump, setKeys, held, dispose };
+  return {
+    sample,
+    setTouchMove,
+    setTouchJump,
+    setTouchYaw,
+    setKeys,
+    setCamYaw,
+    getCamYaw,
+    held,
+    dispose,
+  };
 }
 
 export type InputController = ReturnType<typeof createInput>;
