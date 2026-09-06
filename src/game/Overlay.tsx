@@ -123,7 +123,7 @@ export function Overlay() {
   return (
     <div className="pointer-events-none absolute inset-0 z-10 text-fg">
       {phase === "title" && (
-        <div className="pointer-events-auto flex h-full flex-col items-center justify-center bg-bg/50 px-6">
+        <div className="pointer-events-auto flex h-full flex-col items-center justify-center bg-bg/30 px-6">
           <div className="w-full max-w-md rounded-[var(--radius-xl)] border border-border bg-surface p-6 shadow-lg sm:p-8">
             <p className="font-mono text-xs uppercase tracking-widest text-fg-muted">
               Isometric wander
