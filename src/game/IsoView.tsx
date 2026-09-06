@@ -440,14 +440,8 @@ export function IsoView({ seed }: { seed: string }) {
         );
       }
       const [px, py] = project(camWX, camWZ, camElev);
-      if (camX === 0 && camY === 0) {
-        camX = px;
-        camY = py;
-      } else {
-        const kScr = 1 - Math.exp(-5.4 * dt);
-        camX += (px - camX) * kScr;
-        camY += (py - camY) * kScr;
-      }
+      camX = px;
+      camY = py;
 
       const sky = ctx.createLinearGradient(0, 0, 0, cssH);
       sky.addColorStop(0, "#8ea4b0");
