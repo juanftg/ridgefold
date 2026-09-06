@@ -122,8 +122,29 @@ export function IsoView({ seed }: { seed: string }) {
     let camWX = player.x;
     let camWZ = player.z;
     let camElev = player.y / HEIGHT_UNIT;
+    let camWVX = 0;
+    let camWVZ = 0;
+    let camElevV = 0;
     let lookVX = 0;
     let lookVZ = 0;
+
+    const springDamp = (
+      pos: number,
+      vel: number,
+      target: number,
+      dt: number,
+      freq: number,
+      zeta: number,
+    ): [number, number] => {
+      const omega = Math.PI * 2 * freq;
+      const f = 1 + 2 * dt * zeta * omega;
+      const oo = omega * omega;
+      const det = f + dt * dt * oo;
+      return [
+        (pos * f + vel * dt + oo * target * dt * dt) / det,
+        (vel + oo * (target - pos) * dt) / det,
+      ];
+    };
 
     const probe: Probe = {
       getYaw: () => player.yaw,
@@ -155,21 +176,44 @@ export function IsoView({ seed }: { seed: string }) {
       const elev = water
         ? 0.34 + Math.sin(t * 1.6 + x * 1.7 + z * 1.15) * 0.05
         : Math.max(0.55, h);
-      const x0 = x - 0.48;
-      const x1 = x + 0.48;
-      const z0 = z - 0.48;
-      const z1 = z + 0.48;
+      const gx = Math.floor(x);
+      const gz = Math.floor(z);
+      const neighborElev = (nx: number, nz: number) => {
+        const c = cellAt(world, nx, nz);
+        return c.water ? 0.28 : Math.max(0.55, c.h);
+      };
+      const half = 0.51;
+      const x0 = x - half;
+      const x1 = x + half;
+      const z0 = z - half;
+      const z1 = z + half;
       const t00 = project(x0, z0, elev);
       const t10 = project(x1, z0, elev);
       const t11 = project(x1, z1, elev);
       const t01 = project(x0, z1, elev);
-      const b10 = project(x1, z0, 0);
-      const b11 = project(x1, z1, 0);
-      const b01 = project(x0, z1, 0);
       const side = BIOME_SIDE[biome] ?? "#5a4a38";
       const top = BIOME_TOP[biome] ?? "#6e8f5c";
-      quad(ctx, [t10, t11, b11, b10], shade(side, water ? -8 : -18));
-      quad(ctx, [t01, t11, b11, b01], shade(side, water ? 16 : 10));
+      const face = (
+        ax: number,
+        az: number,
+        bx: number,
+        bz: number,
+        bot: number,
+        color: string,
+      ) => {
+        if (bot >= elev - 0.02) return;
+        const p0 = project(ax, az, elev);
+        const p1 = project(bx, bz, elev);
+        const p2 = project(bx, bz, bot);
+        const p3 = project(ax, az, bot);
+        quad(ctx, [p0, p1, p2, p3], color);
+      };
+      const visPosX = depth(1, 0) > depth(0, 0);
+      const visPosZ = depth(0, 1) > depth(0, 0);
+      if (visPosX) face(x1, z0, x1, z1, neighborElev(gx + 1, gz), shade(side, water ? -8 : -18));
+      else face(x0, z0, x0, z1, neighborElev(gx - 1, gz), shade(side, water ? -4 : -8));
+      if (visPosZ) face(x0, z1, x1, z1, neighborElev(gx, gz + 1), shade(side, water ? 16 : 10));
+      else face(x0, z0, x1, z0, neighborElev(gx, gz - 1), shade(side, water ? 8 : 4));
       quad(ctx, [t00, t10, t11, t01], water ? shade(top, Math.sin(t * 2 + x + z) * 18) : top);
     };
 
@@ -307,7 +351,7 @@ export function IsoView({ seed }: { seed: string }) {
         ctx.fill();
         ctx.fillStyle = "#2c3330";
         ctx.beginPath();
-        ctx.ellipse(sideOn ? 1.6 : 0.3, -34, 6.9, 4.4, sideOn ? 0.22 : 0.1, 0, 0, Math.PI * 2);
+        ctx.ellipse(sideOn ? 1.6 : 0.3, -34, 6.9, 4.4, sideOn ? 0.22 : 0.1, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = "#1a1e1c";
         ctx.beginPath();
@@ -371,21 +415,39 @@ export function IsoView({ seed }: { seed: string }) {
         camWX = player.x;
         camWZ = player.z;
         camElev = player.y / HEIGHT_UNIT;
+        camWVX = 0;
+        camWVZ = 0;
+        camElevV = 0;
+        lookVX = 0;
+        lookVZ = 0;
         camInited = true;
       } else {
-        const kLook = 1 - Math.exp(-1.9 * dt);
-        const kPos = 1 - Math.exp(-3.2 * dt);
-        const kElev = 1 - Math.exp(-(player.grounded ? 1.55 : 7.2) * dt);
-        const ahead = player.grounded ? 0.09 : 0.03;
+        const kLook = 1 - Math.exp(-2.1 * dt);
+        const ahead = player.grounded ? 0.11 : 0.04;
         lookVX += (player.vx * ahead - lookVX) * kLook;
         lookVZ += (player.vz * ahead - lookVZ) * kLook;
-        camWX += (player.x + lookVX - camWX) * kPos;
-        camWZ += (player.z + lookVZ - camWZ) * kPos;
-        camElev += (player.y / HEIGHT_UNIT - camElev) * kElev;
+        const posFreq = player.grounded ? 1.05 : 1.45;
+        const elevFreq = player.grounded ? 0.42 : 1.35;
+        [camWX, camWVX] = springDamp(camWX, camWVX, player.x + lookVX, dt, posFreq, 1.18);
+        [camWZ, camWVZ] = springDamp(camWZ, camWVZ, player.z + lookVZ, dt, posFreq, 1.18);
+        [camElev, camElevV] = springDamp(
+          camElev,
+          camElevV,
+          player.y / HEIGHT_UNIT,
+          dt,
+          elevFreq,
+          1.22,
+        );
       }
       const [px, py] = project(camWX, camWZ, camElev);
-      camX = px;
-      camY = py;
+      if (camX === 0 && camY === 0) {
+        camX = px;
+        camY = py;
+      } else {
+        const kScr = 1 - Math.exp(-5.4 * dt);
+        camX += (px - camX) * kScr;
+        camY += (py - camY) * kScr;
+      }
 
       const sky = ctx.createLinearGradient(0, 0, 0, cssH);
       sky.addColorStop(0, "#8ea4b0");
