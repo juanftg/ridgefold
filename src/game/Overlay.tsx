@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Compass, Mountain, Pause, Play, RotateCcw, RotateCw, Waves } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PLAYER_MAX_HP } from "./constants";
 import { useGame } from "./store";
 
 function TouchStick() {
@@ -116,6 +117,17 @@ function YawButton({ dir, label, children }: { dir: number; label: string; child
   );
 }
 
+function HealthPips({ hp, maxHp }: { hp: number; maxHp: number }) {
+  const n = Math.max(1, maxHp || PLAYER_MAX_HP);
+  return (
+    <div className="hp" aria-label={`Health ${hp} of ${n}`}>
+      {Array.from({ length: n }, (_, i) => (
+        <span key={i} className={i < hp ? "hp-pip on" : "hp-pip"} />
+      ))}
+    </div>
+  );
+}
+
 export function Overlay() {
   const phase = useGame((s) => s.phase);
   const seed = useGame((s) => s.seed);
@@ -125,6 +137,7 @@ export function Overlay() {
   const resume = useGame((s) => s.resume);
   const toTitle = useGame((s) => s.toTitle);
   const newFold = useGame((s) => s.newFold);
+  const revive = useGame((s) => s.revive);
   const hud = useGame((s) => s.hud);
   const hint = hud.hint === "ledge" ? "Too steep \u2014 jump" : null;
 
@@ -136,9 +149,8 @@ export function Overlay() {
             <p className="kicker">Endless isometric wander</p>
             <h1 className="title">Ridgefold</h1>
             <p className="lede">
-              Wide shelves of level ground, hill climbs up to mountain mesas,
-              and broad lakes at the floor — wade them, don't fall through.
-              The camera glides as you walk.
+              Wide shelves, hill-climb mesas, and lakes at the floor. Hares share
+              the fold; wolves hunt. Ten hits and you drop — stomp them from above.
             </p>
             <label className="field">
               Seed
@@ -159,7 +171,7 @@ export function Overlay() {
             </div>
             <p className="hint">
               WASD moves on screen. Space jumps. Q / E (or drag) turns the view.
-              Scroll zooms. The land keeps generating as you walk.
+              Scroll zooms. Jump on a wolf to stomp it.
             </p>
           </div>
         </div>
@@ -186,21 +198,24 @@ export function Overlay() {
                   </span>
                 )}
               </div>
+              <HealthPips hp={hud.hp} maxHp={hud.maxHp} />
             </div>
             {hint && <div className="toast">{hint}</div>}
           </div>
-          <div className="pause-btn">
-            <Button
-              variant="secondary"
-              size="icon"
-              aria-label={phase === "paused" ? "Resume" : "Pause"}
-              onClick={phase === "paused" ? resume : pause}
-            >
-              {phase === "paused" ? <Play /> : <Pause />}
-            </Button>
-          </div>
+          {phase !== "dead" && (
+            <div className="pause-btn">
+              <Button
+                variant="secondary"
+                size="icon"
+                aria-label={phase === "paused" ? "Resume" : "Pause"}
+                onClick={phase === "paused" ? resume : pause}
+              >
+                {phase === "paused" ? <Play /> : <Pause />}
+              </Button>
+            </div>
+          )}
           <div className="hint-keys">
-            <span>WASD roam \u00b7 Space jump \u00b7 Q/E turn \u00b7 drag rotate \u00b7 scroll zoom</span>
+            <span>WASD roam \u00b7 Space jump \u00b7 Q/E turn \u00b7 stomp wolves</span>
           </div>
           <div className="touch-bar">
             <TouchStick />
@@ -226,6 +241,27 @@ export function Overlay() {
             <p className="pause-copy">The fold holds still until you wander again.</p>
             <div className="row">
               <Button onClick={resume}>Resume</Button>
+              <Button variant="secondary" onClick={newFold}>
+                New fold
+              </Button>
+              <Button variant="ghost" onClick={toTitle}>
+                Title
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {phase === "dead" && (
+        <div className="shade dead">
+          <div className="card narrow">
+            <p className="kicker">Ten hits</p>
+            <h2 className="pause-title">Folded</h2>
+            <p className="pause-copy">
+              The land keeps going. Stand up on this seed, or take another fold.
+            </p>
+            <div className="row">
+              <Button onClick={revive}>Stand up</Button>
               <Button variant="secondary" onClick={newFold}>
                 New fold
               </Button>
