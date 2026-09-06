@@ -12,7 +12,7 @@ export const JUMP_CLIMB = 3;
 export const COYOTE_TIME = 0.11;
 export const JUMP_BUFFER = 0.14;
 export const FIXED_DT = 1 / 60;
-export const CAM_ROT_SPEED = 1.55;
+export const CAM_ROT_SPEED = 0.82;
 export const ISO_RIGHT = { x: Math.SQRT1_2, z: -Math.SQRT1_2 };
 export const ISO_UP = { x: -Math.SQRT1_2, z: -Math.SQRT1_2 };
 
