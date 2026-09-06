@@ -72,9 +72,12 @@ export function createAudio() {
     hurt() {
       beep(180, 0.16, "square", 0.055, -90);
     },
-    stomp() {
-      beep(260, 0.11, "triangle", 0.06, -140);
-      beep(520, 0.08, "sine", 0.03, 80);
+    throw() {
+      beep(340, 0.09, "triangle", 0.045, -220);
+    },
+    scare() {
+      beep(210, 0.12, "square", 0.05, -70);
+      beep(90, 0.14, "sine", 0.04, -30);
     },
   };
 }
