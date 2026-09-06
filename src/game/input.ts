@@ -5,6 +5,7 @@ export type SampledInput = {
   moveY: number;
   jumpHeld: boolean;
   jumpPressed: boolean;
+  throwPressed: boolean;
   pausePressed: boolean;
   yawRate: number;
   worldX: number;
@@ -24,10 +25,7 @@ function rotateXZ(x: number, z: number, a: number): [number, number] {
   return [x * c - z * s, x * s + z * c];
 }
 
-export function screenToWorld(mx: number, my: number, camYaw: number): {
-  worldX: number;
-  worldZ: number;
-} {
+export function screenToWorld(mx: number, my: number, camYaw: number): { worldX: number; worldZ: number } {
   const [rx, rz] = rotateXZ(ISO_RIGHT.x, ISO_RIGHT.z, -camYaw);
   const [ux, uz] = rotateXZ(ISO_UP.x, ISO_UP.z, -camYaw);
   return { worldX: rx * mx + ux * my, worldZ: rz * mx + uz * my };
@@ -43,6 +41,7 @@ const GAME_CODES = new Set([
   "ArrowLeft",
   "ArrowRight",
   "Space",
+  "KeyF",
   "KeyP",
   "Escape",
   "KeyQ",
@@ -59,8 +58,10 @@ export function createInput() {
   let touchX = 0;
   let touchY = 0;
   let touchJump = false;
+  let touchThrow = false;
   let touchYaw = 0;
   let prevJump = false;
+  let prevThrow = false;
   let prevPause = false;
   let camYaw = 0;
 
@@ -88,6 +89,9 @@ export function createInput() {
   }
   function setTouchJump(v: boolean) {
     touchJump = v;
+  }
+  function setTouchThrow(v: boolean) {
+    touchThrow = v;
   }
   function setTouchYaw(v: number) {
     touchYaw = v;
@@ -120,6 +124,7 @@ export function createInput() {
     if (k.has("KeyE") || k.has("BracketRight") || k.has("Period")) yawRate -= 1;
 
     let padJump = false;
+    let padThrow = false;
     const pads = typeof navigator !== "undefined" ? navigator.getGamepads?.() ?? [] : [];
     for (const pad of pads) {
       if (!pad || pad.mapping !== "standard") continue;
@@ -131,6 +136,7 @@ export function createInput() {
       if (pad.buttons[4]?.pressed) yawRate += 1;
       if (pad.buttons[5]?.pressed) yawRate -= 1;
       if (pad.buttons[0]?.pressed) padJump = true;
+      if (pad.buttons[2]?.pressed) padThrow = true;
       if (pad.buttons[12]?.pressed) my += 1;
       if (pad.buttons[13]?.pressed) my -= 1;
       if (pad.buttons[14]?.pressed) mx -= 1;
@@ -152,6 +158,10 @@ export function createInput() {
     const jumpPressed = jumpHeld && !prevJump;
     prevJump = jumpHeld;
 
+    const throwHeld = k.has("KeyF") || touchThrow || padThrow;
+    const throwPressed = throwHeld && !prevThrow;
+    prevThrow = throwHeld;
+
     const pauseHeld = k.has("Escape") || k.has("KeyP");
     const pausePressed = pauseHeld && !prevPause;
     prevPause = pauseHeld;
@@ -163,6 +173,7 @@ export function createInput() {
       moveY: my,
       jumpHeld,
       jumpPressed,
+      throwPressed,
       pausePressed,
       yawRate,
       worldX: moved.worldX,
@@ -181,6 +192,7 @@ export function createInput() {
     sample,
     setTouchMove,
     setTouchJump,
+    setTouchThrow,
     setTouchYaw,
     setKeys,
     setCamYaw,
