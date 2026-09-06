@@ -746,6 +746,37 @@ export function createPaint(args: {
     const [sx, sy] = project(r.x, r.z, elev);
     const s = r.scale || 1;
     const k = zoom * 0.9 * s;
+    if (r.kind === "scythe") {
+      ctx.fillStyle = "rgba(16, 20, 18, 0.2)";
+      ctx.beginPath();
+      ctx.ellipse(sx, sy + 1.6 * k, 3.2 * k, 1.35 * k, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.save();
+      ctx.translate(sx, sy - 2.2 * k);
+      ctx.rotate(r.orbitA + 0.7);
+      ctx.fillStyle = "#6a3a32";
+      ctx.fillRect(-1.1 * k, -1.2 * k, 2.2 * k, 7.4 * k);
+      ctx.fillStyle = "#c4b08a";
+      ctx.beginPath();
+      ctx.moveTo(0.2 * k, -1.4 * k);
+      ctx.quadraticCurveTo(9.5 * k, -7.2 * k, 16.4 * k, 1.8 * k);
+      ctx.quadraticCurveTo(8.4 * k, -1.6 * k, 1.2 * k, 2.4 * k);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#e8dcc8";
+      ctx.beginPath();
+      ctx.moveTo(1.4 * k, -0.6 * k);
+      ctx.quadraticCurveTo(8.6 * k, -5.4 * k, 14.2 * k, 0.6 * k);
+      ctx.quadraticCurveTo(8.2 * k, -2.2 * k, 2.0 * k, 0.8 * k);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#c45c4a";
+      ctx.beginPath();
+      ctx.arc(0, -1.6 * k, 1.15 * k, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
     const [gsx, gsy] = project(r.x, r.z, 0.2);
     ctx.fillStyle = "rgba(16, 20, 18, 0.22)";
     ctx.beginPath();

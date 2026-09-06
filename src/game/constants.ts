@@ -33,9 +33,13 @@ export const BLAST_DAMAGE = 3;
 export const SHOP_COST = 100;
 export const MAX_SPEED_LV = 8;
 export const MAX_ATK_LV = 8;
+export const MAX_SCYTHE_LV = 8;
 export const SPEED_PER_LV = 0.14;
 export const COIN_MAGNET_R = 2.7;
 export const COIN_PICKUP_R = 0.62;
+export const WAVE_FIRST = 2.5;
+export const WAVE_GAP = 6.6;
+export const WAVE_LIVE_CAP = 38;
 
 export const BIOME_TOP = ["#cbb892", "#6e8f5c", "#4f7a58", "#8a8478", "#4a8ea0"] as const;
 export const BIOME_SIDE = ["#8d7a5c", "#5a4a38", "#3f4f40", "#5c5852", "#2c5c6c"] as const;

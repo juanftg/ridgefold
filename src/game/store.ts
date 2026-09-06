@@ -4,7 +4,7 @@ import { randomSeedWord } from "./rng";
 
 export type Phase = "title" | "playing" | "paused" | "dead";
 export type WandererSex = "female" | "male";
-export type BuyKind = "speed" | "attack";
+export type BuyKind = "speed" | "attack" | "scythe";
 
 type Hud = {
   seed: string;
@@ -18,6 +18,8 @@ type Hud = {
   coins: number;
   speedLv: number;
   atkLv: number;
+  scytheLv: number;
+  wave: number;
 };
 
 type GameState = {
@@ -66,6 +68,8 @@ const emptyHud = (): Hud => ({
   coins: 0,
   speedLv: 0,
   atkLv: 0,
+  scytheLv: 0,
+  wave: 0,
 });
 
 export const useGame = create<GameState>((set, get) => ({

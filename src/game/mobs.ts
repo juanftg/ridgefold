@@ -12,12 +12,16 @@ import {
   IDLE_FIRST,
   IDLE_GAP,
   MAX_ATK_LV,
+  MAX_SCYTHE_LV,
   MAX_SPEED_LV,
   PLAYER_IFRAME,
   PLAYER_RADIUS,
   ROCK_SPEED,
   SHOP_COST,
   WALK_STEP,
+  WAVE_FIRST,
+  WAVE_GAP,
+  WAVE_LIVE_CAP,
   WOLF_AGGRO_R,
 } from "./constants";
 import { mulberry32 } from "./rng";
@@ -25,8 +29,9 @@ import type { Player } from "./sim";
 import { cellAt, chunkKey, deformCrater, tileTop, worldToGrid, type World } from "./terrain";
 
 export type MobKind = "hare" | "wolf" | "boar" | "bear" | "moose" | "fuse" | "cthulhu";
-export type BuyKind = "speed" | "attack";
-export type RockKind = "shot" | "orbit";
+export type BuyKind = "speed" | "attack" | "scythe";
+export type RockKind = "shot" | "orbit" | "scythe";
+export type March = "free" | "seek" | "wall" | "orbit";
 
 export const IDLE_HUNT: MobKind[] = ["boar", "bear", "moose", "fuse", "cthulhu"];
 
@@ -43,13 +48,25 @@ export const MOB_DAMAGE: Record<MobKind, number> = {
 export const ATK_NAME = [
   "pebble",
   "heavier",
-  "seeking",
   "twin",
-  "orbit",
   "fan",
+  "orbit",
   "homing",
   "storm",
   "tempest",
+  "cataclysm",
+] as const;
+
+export const SCYTHE_NAME = [
+  "none",
+  "crescent",
+  "twin reap",
+  "wider",
+  "triune",
+  "harvest",
+  "vortex",
+  "reaper",
+  "eclipse",
 ] as const;
 
 const DROP: Record<MobKind, { chance: number; min: number; max: number }> = {
@@ -99,15 +116,35 @@ export function attackStats(lv: number): AttackStats {
   const n = Math.max(0, Math.min(MAX_ATK_LV, lv));
   return {
     dmg: n >= 5 ? 3 : n >= 1 ? 2 : 1,
-    count: n >= 5 ? 3 : n >= 3 ? 2 : 1,
-    cooldown: Math.max(0.16, 0.52 - n * 0.045),
+    count: n >= 5 ? 3 : n >= 2 ? 2 : 1,
+    cooldown: Math.max(0.16, 0.48 - n * 0.04),
     speed: ROCK_SPEED + n * 1.15,
     scale: 1 + Math.min(1.35, n * 0.18),
-    pierce: n >= 6 ? 2 : n >= 5 ? 1 : 0,
-    homing: n >= 6,
-    auto: n >= 2,
-    orbits: n >= 7 ? 4 : n >= 5 ? 3 : n >= 4 ? 2 : 0,
-    spread: n >= 5 ? 0.32 : n >= 3 ? 0.22 : 0,
+    pierce: n >= 6 ? 2 : n >= 4 ? 1 : 0,
+    homing: n >= 5,
+    auto: true,
+    orbits: n >= 7 ? 4 : n >= 6 ? 3 : n >= 4 ? 2 : 0,
+    spread: n >= 5 ? 0.32 : n >= 2 ? 0.2 : 0,
+  };
+}
+
+export type ScytheStats = {
+  blades: number;
+  radius: number;
+  spin: number;
+  dmg: number;
+  scale: number;
+};
+
+export function scytheStats(lv: number): ScytheStats {
+  const n = Math.max(0, Math.min(MAX_SCYTHE_LV, lv));
+  if (n <= 0) return { blades: 0, radius: 0, spin: 0, dmg: 0, scale: 1 };
+  return {
+    blades: n >= 7 ? 5 : n >= 6 ? 4 : n >= 4 ? 3 : n >= 2 ? 2 : 1,
+    radius: 1.55 + n * 0.16,
+    spin: 2.15 + n * 0.28,
+    dmg: n >= 7 ? 4 : n >= 5 ? 3 : n >= 3 ? 2 : 2,
+    scale: 0.95 + n * 0.12,
   };
 }
 
@@ -135,6 +172,10 @@ export type Mob = {
   wishZ: number;
   cx: number;
   cz: number;
+  march: March;
+  orbitA: number;
+  orbitR: number;
+  marchSp: number;
 };
 
 export type Rock = {
@@ -175,6 +216,8 @@ export type MobField = {
   spawned: Set<string>;
   idleT: number;
   idleWave: number;
+  waveT: number;
+  waveN: number;
 };
 
 export type MobEvents = {
@@ -186,7 +229,17 @@ export type MobEvents = {
 };
 
 export function createMobField(): MobField {
-  return { mobs: [], rocks: [], coins: [], nextId: 1, spawned: new Set(), idleT: 0, idleWave: 0 };
+  return {
+    mobs: [],
+    rocks: [],
+    coins: [],
+    nextId: 1,
+    spawned: new Set(),
+    idleT: 0,
+    idleWave: 0,
+    waveT: 0,
+    waveN: 0,
+  };
 }
 
 function sampleTop(world: World, x: number, z: number) {
@@ -215,6 +268,7 @@ export function spawnMobAt(
   kind: MobKind,
   x: number,
   z: number,
+  extra?: { march?: March; marchSp?: number; orbitA?: number; orbitR?: number },
 ): Mob {
   const cell = sampleTop(world, x, z);
   const st = STATS[kind];
@@ -243,6 +297,10 @@ export function spawnMobAt(
     wishZ: 0,
     cx: Math.floor(gx / CHUNK_SIZE),
     cz: Math.floor(gz / CHUNK_SIZE),
+    march: extra?.march ?? "free",
+    orbitA: extra?.orbitA ?? 0,
+    orbitR: extra?.orbitR ?? 0,
+    marchSp: extra?.marchSp ?? 1.12,
   };
   field.mobs.push(mob);
   return mob;
@@ -288,14 +346,11 @@ export function ensureMobsAround(world: World, field: MobField, x: number, z: nu
       if (Math.hypot(wx - world.spawnX, wz - world.spawnZ) < 10) continue;
       const rng = mulberry32(world.seedNum ^ 0xa5f11e ^ ((cx * 374761393) ^ (cz * 668265263)));
       const roll = rng();
-      const count = roll < 0.12 ? 0 : roll < 0.58 ? 1 : 2;
+      const count = roll < 0.4 ? 0 : 1;
       for (let i = 0; i < count; i++) {
         const pos = pickLandInChunk(world, cx, cz, rng);
         if (!pos) continue;
-        const k = rng();
-        const kind: MobKind =
-          k < 0.28 ? "hare" : k < 0.48 ? "wolf" : k < 0.66 ? "boar" : k < 0.82 ? "bear" : k < 0.94 ? "moose" : "fuse";
-        spawnMobAt(field, world, kind, pos[0], pos[1]);
+        spawnMobAt(field, world, "hare", pos[0], pos[1]);
       }
     }
   }
@@ -501,18 +556,160 @@ function syncOrbits(field: MobField, player: Player) {
   }
 }
 
+function syncScythes(field: MobField, player: Player) {
+  const st = scytheStats(player.scytheLv);
+  const want = player.hp > 0 ? st.blades : 0;
+  const blades = field.rocks.filter((r) => r.kind === "scythe" && r.alive);
+  if (blades.length === want) {
+    for (const r of blades) {
+      r.dmg = st.dmg;
+      r.scale = st.scale;
+      r.orbitR = st.radius;
+    }
+    return;
+  }
+  field.rocks = field.rocks.filter((r) => r.kind !== "scythe");
+  for (let i = 0; i < want; i++) {
+    const a = (i / want) * Math.PI * 2;
+    field.rocks.push({
+      x: player.x,
+      y: player.y + 0.62,
+      z: player.z,
+      vx: 0,
+      vy: 0,
+      vz: 0,
+      alive: true,
+      age: 0,
+      dmg: st.dmg,
+      scale: st.scale,
+      pierce: 99,
+      homing: false,
+      kind: "scythe",
+      orbitA: a,
+      orbitR: st.radius,
+      hits: [],
+    });
+  }
+}
+
 export function tryBuy(player: Player, field: MobField, kind: BuyKind): boolean {
   if (player.coins < SHOP_COST) return false;
   if (kind === "speed") {
     if (player.speedLv >= MAX_SPEED_LV) return false;
     player.speedLv += 1;
+  } else if (kind === "scythe") {
+    if (player.scytheLv >= MAX_SCYTHE_LV) return false;
+    player.scytheLv += 1;
   } else {
     if (player.atkLv >= MAX_ATK_LV) return false;
     player.atkLv += 1;
   }
   player.coins -= SHOP_COST;
   syncOrbits(field, player);
+  syncScythes(field, player);
   return true;
+}
+
+function waveKind(n: number, i: number): MobKind {
+  if (n >= 10 && i === 0) return "cthulhu";
+  if (n >= 7 && i % 7 === 0) return "fuse";
+  if (n >= 6 && i % 5 === 0) return "moose";
+  if (n >= 4 && i % 4 === 0) return "bear";
+  if (n >= 2 && i % 3 === 0) return "boar";
+  return "wolf";
+}
+
+function spawnWave(world: World, field: MobField, player: Player) {
+  const n = field.waveN;
+  const pattern = n % 4;
+  const count = Math.min(14, 5 + Math.floor(n * 0.7));
+  const sp = 1.0 + Math.min(0.5, n * 0.035);
+  const dist = 7.1 + (n % 3) * 0.25;
+  const base = n * 0.85 + player.yaw;
+
+  if (pattern === 0) {
+    for (let i = 0; i < count; i++) {
+      const a = base + (i / count) * Math.PI * 2;
+      const [sx, sz] = pickLandNear(
+        world,
+        player.x + Math.cos(a) * dist,
+        player.z + Math.sin(a) * dist,
+        0.4,
+        a,
+      );
+      spawnMobAt(field, world, waveKind(n, i), sx, sz, { march: "seek", marchSp: sp });
+    }
+    return;
+  }
+
+  if (pattern === 1) {
+    const fx = Math.cos(base);
+    const fz = Math.sin(base);
+    const px = -fz;
+    const pz = fx;
+    for (let i = 0; i < count; i++) {
+      const along = (i - (count - 1) / 2) * 0.95;
+      const [sx, sz] = pickLandNear(
+        world,
+        player.x + fx * dist + px * along,
+        player.z + fz * dist + pz * along,
+        0.45,
+        base,
+      );
+      const m = spawnMobAt(field, world, waveKind(n, i), sx, sz, { march: "wall", marchSp: sp * 0.92 });
+      const dx = player.x - sx;
+      const dz = player.z - sz;
+      const d = Math.hypot(dx, dz) || 1;
+      m.wishX = dx / d;
+      m.wishZ = dz / d;
+    }
+    return;
+  }
+
+  if (pattern === 2) {
+    for (let i = 0; i < count; i++) {
+      const a = base + (i / count) * Math.PI * 2;
+      const [sx, sz] = pickLandNear(
+        world,
+        player.x + Math.cos(a) * dist,
+        player.z + Math.sin(a) * dist,
+        0.4,
+        a,
+      );
+      spawnMobAt(field, world, waveKind(n, i), sx, sz, {
+        march: "orbit",
+        marchSp: sp,
+        orbitA: a,
+        orbitR: dist,
+      });
+    }
+    return;
+  }
+
+  const fan = 0.95;
+  for (let i = 0; i < count; i++) {
+    const t = count === 1 ? 0 : i / (count - 1) - 0.5;
+    const a = base + t * fan;
+    const [sx, sz] = pickLandNear(
+      world,
+      player.x + Math.cos(a) * dist,
+      player.z + Math.sin(a) * dist,
+      0.4,
+      a,
+    );
+    spawnMobAt(field, world, waveKind(n, i), sx, sz, { march: "seek", marchSp: sp });
+  }
+}
+
+function stepWaves(world: World, field: MobField, player: Player, dt: number) {
+  if (player.hp <= 0) return;
+  field.waveT += dt;
+  const nextAt = WAVE_FIRST + field.waveN * WAVE_GAP;
+  if (field.waveT < nextAt) return;
+  const live = field.mobs.filter((m) => m.alive && m.aggressive).length;
+  if (live >= WAVE_LIVE_CAP) return;
+  spawnWave(world, field, player);
+  field.waveN += 1;
 }
 
 function stepIdleHunt(world: World, field: MobField, player: Player, dt: number) {
@@ -536,7 +733,7 @@ function stepIdleHunt(world: World, field: MobField, player: Player, dt: number)
     1.35,
     a,
   );
-  spawnMobAt(field, world, kind, sx, sz);
+  spawnMobAt(field, world, kind, sx, sz, { march: "seek", marchSp: 1.18 });
   field.idleWave += 1;
 }
 
@@ -574,12 +771,13 @@ function stepCoins(world: World, field: MobField, player: Player, dt: number, ev
 export function stepMobs(world: World, field: MobField, player: Player, dt: number): MobEvents {
   const events: MobEvents = { playerDamage: 0, hits: 0, kills: 0, coins: 0, explosions: [] };
   stepIdleHunt(world, field, player, dt);
+  stepWaves(world, field, player, dt);
   syncOrbits(field, player);
+  syncScythes(field, player);
 
   const st = attackStats(player.atkLv);
   if (st.auto && player.hp > 0 && player.throwCd <= 0) {
-    const t = nearestHostile(field, player, 11.5);
-    if (t) throwRock(world, field, player);
+    if (nearestHostile(field, player, 13)) throwRock(world, field, player);
   }
 
   for (const m of field.mobs) {
@@ -592,7 +790,30 @@ export function stepMobs(world: World, field: MobField, player: Player, dt: numb
     const dz = player.z - m.z;
     const dist = Math.hypot(dx, dz);
     const scared = m.fleeT > 0;
-    if (m.thinkT <= 0) {
+    if (m.march !== "free" && !scared && player.hp > 0) {
+      if (m.march === "orbit") {
+        m.orbitA += dt * 0.58;
+        m.orbitR = Math.max(1.7, m.orbitR - dt * 0.38);
+        const tx = player.x + Math.cos(m.orbitA) * m.orbitR;
+        const tz = player.z + Math.sin(m.orbitA) * m.orbitR;
+        const ox = tx - m.x;
+        const oz = tz - m.z;
+        const od = Math.hypot(ox, oz) || 1;
+        m.wishX = ox / od;
+        m.wishZ = oz / od;
+      } else if (m.march === "wall") {
+        const inv = dist > 0.001 ? 1 / dist : 0;
+        m.wishX = m.wishX * 0.94 + dx * inv * 0.06;
+        m.wishZ = m.wishZ * 0.94 + dz * inv * 0.06;
+        const wm = Math.hypot(m.wishX, m.wishZ) || 1;
+        m.wishX /= wm;
+        m.wishZ /= wm;
+      } else {
+        const inv = dist > 0.001 ? 1 / dist : 0;
+        m.wishX = dx * inv;
+        m.wishZ = dz * inv;
+      }
+    } else if (m.thinkT <= 0) {
       m.thinkT = 0.32 + (m.id % 7) * 0.07;
       if (scared) {
         const inv = dist > 0.001 ? 1 / dist : 0;
@@ -621,7 +842,14 @@ export function stepMobs(world: World, field: MobField, player: Player, dt: numb
     const cell = sampleTop(world, m.x, m.z);
     const chasing = m.aggressive && !scared && dist < ks.aggro;
     const fleeing = scared || (!m.aggressive && dist < HARE_FLEE_R);
-    let speed = chasing ? ks.chase : fleeing ? ks.flee : ks.walk;
+    let speed =
+      m.march !== "free" && !scared
+        ? m.marchSp
+        : chasing
+          ? ks.chase
+          : fleeing
+            ? ks.flee
+            : ks.walk;
     if (m.kind === "fuse" && !scared && dist < FUSE_RANGE && player.hp > 0) {
       m.fuseT += dt;
       speed *= 0.18;
@@ -662,14 +890,16 @@ export function stepMobs(world: World, field: MobField, player: Player, dt: numb
   }
 
   const orbitSpeed = 2.35 + player.atkLv * 0.22;
+  const scytheSt = scytheStats(player.scytheLv);
   for (const rock of field.rocks) {
     if (!rock.alive) continue;
     rock.age += dt;
-    if (rock.kind === "orbit") {
-      rock.orbitA += dt * orbitSpeed;
+    if (rock.kind === "orbit" || rock.kind === "scythe") {
+      const spin = rock.kind === "scythe" ? scytheSt.spin : orbitSpeed;
+      rock.orbitA += dt * spin;
       rock.x = player.x + Math.cos(rock.orbitA) * rock.orbitR;
       rock.z = player.z + Math.sin(rock.orbitA) * rock.orbitR;
-      rock.y = player.y + 0.58 + Math.sin(rock.orbitA * 2) * 0.08;
+      rock.y = player.y + (rock.kind === "scythe" ? 0.66 : 0.58) + Math.sin(rock.orbitA * 2) * 0.08;
       if (player.hp <= 0) rock.alive = false;
     } else {
       if (rock.homing) {
@@ -705,9 +935,10 @@ export function stepMobs(world: World, field: MobField, player: Player, dt: numb
       if (!m.alive) continue;
       if (rock.hits.includes(m.id)) continue;
       if (rock.kind === "orbit" && m.hurtT > 0.05) continue;
+      if (rock.kind === "scythe" && m.hurtT > 0.12) continue;
       const dx = rock.x - m.x;
       const dz = rock.z - m.z;
-      const reach = m.radius + 0.62 * rock.scale;
+      const reach = m.radius + (rock.kind === "scythe" ? 0.95 : 0.62) * rock.scale;
       if (dx * dx + dz * dz > reach * reach) continue;
       if (rock.y < m.y - 0.25 || rock.y > m.y + 1.85) continue;
       hitMob(field, m, rock.dmg, events);

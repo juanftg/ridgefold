@@ -52,7 +52,8 @@ type Probe = {
   getScarCount?: () => number;
   getSex?: () => WandererSex;
   getCoins?: () => number;
-  getLevels?: () => { speed: number; atk: number };
+  getLevels?: () => { speed: number; atk: number; scythe: number };
+  getWave?: () => number;
   buy?: (kind: BuyKind) => boolean;
   spawnCoin?: (x: number, z: number, value: number) => void;
   setHp?: (n: number) => void;
@@ -175,7 +176,8 @@ export function IsoView({ seed, sex }: { seed: string; sex: WandererSex }) {
       getScarCount: () => world.scars.size,
       getSex: () => player.sex,
       getCoins: () => player.coins,
-      getLevels: () => ({ speed: player.speedLv, atk: player.atkLv }),
+      getLevels: () => ({ speed: player.speedLv, atk: player.atkLv, scythe: player.scytheLv }),
+      getWave: () => field.waveN,
       buy: (kind) => tryBuy(player, field, kind),
       spawnCoin: (x, z, value) => {
         field.coins.push({
@@ -587,6 +589,8 @@ export function IsoView({ seed, sex }: { seed: string; sex: WandererSex }) {
           coins: player.coins,
           speedLv: player.speedLv,
           atkLv: player.atkLv,
+          scytheLv: player.scytheLv,
+          wave: field.waveN,
         });
       }
 

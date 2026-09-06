@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Compass, Coins, Mountain, Pause, Play, RotateCcw, RotateCw, Swords, Waves, Wind } from "lucide-react";
+import { Axe, Compass, Coins, Mountain, Pause, Play, RotateCcw, RotateCw, Swords, Waves, Wind } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { MAX_ATK_LV, MAX_SPEED_LV, PLAYER_MAX_HP, SHOP_COST } from "./constants";
-import { ATK_NAME } from "./mobs";
+import { MAX_ATK_LV, MAX_SCYTHE_LV, MAX_SPEED_LV, PLAYER_MAX_HP, SHOP_COST } from "./constants";
+import { ATK_NAME, SCYTHE_NAME } from "./mobs";
 import { useGame } from "./store";
 
 function TouchStick() {
@@ -157,41 +157,41 @@ function FoldMarket() {
   const coins = useGame((s) => s.hud.coins);
   const speedLv = useGame((s) => s.hud.speedLv);
   const atkLv = useGame((s) => s.hud.atkLv);
+  const scytheLv = useGame((s) => s.hud.scytheLv);
   const buy = useGame((s) => s.buy);
   const phase = useGame((s) => s.phase);
   if (phase !== "playing") return null;
   if (coins < SHOP_COST) return null;
   const speedMax = speedLv >= MAX_SPEED_LV;
   const atkMax = atkLv >= MAX_ATK_LV;
-  if (speedMax && atkMax) return null;
-  const nextAtk = ATK_NAME[Math.min(MAX_ATK_LV, atkLv + 1)] ?? "tempest";
+  const scytheMax = scytheLv >= MAX_SCYTHE_LV;
+  if (speedMax && atkMax && scytheMax) return null;
+  const nextAtk = ATK_NAME[Math.min(MAX_ATK_LV, atkLv + 1)] ?? "cataclysm";
+  const nextScythe = SCYTHE_NAME[Math.min(MAX_SCYTHE_LV, scytheLv + 1)] ?? "eclipse";
   return (
     <div className="market">
       <p className="market-kicker">Fold market · {SHOP_COST}</p>
       <div className="market-row">
-        <button
-          type="button"
-          className="market-btn"
-          disabled={speedMax}
-          onClick={() => buy("speed")}
-        >
+        <button type="button" className="market-btn" disabled={speedMax} onClick={() => buy("speed")}>
           <span className="market-title">
             <Wind size={14} />
             Swift
           </span>
           <span className="market-sub">{speedMax ? "maxed" : `speed ${speedLv + 1}`}</span>
         </button>
-        <button
-          type="button"
-          className="market-btn"
-          disabled={atkMax}
-          onClick={() => buy("attack")}
-        >
+        <button type="button" className="market-btn" disabled={atkMax} onClick={() => buy("attack")}>
           <span className="market-title">
             <Swords size={14} />
             Strike
           </span>
           <span className="market-sub">{atkMax ? "maxed" : nextAtk}</span>
+        </button>
+        <button type="button" className="market-btn" disabled={scytheMax} onClick={() => buy("scythe")}>
+          <span className="market-title">
+            <Axe size={14} />
+            Reap
+          </span>
+          <span className="market-sub">{scytheMax ? "maxed" : nextScythe}</span>
         </button>
       </div>
     </div>
@@ -258,9 +258,8 @@ export function Overlay() {
             <h1 className="title">Ridgefold</h1>
             <SexPicker />
             <p className="lede">
-              Rocks take creatures down. They sometimes leave gold. A hundred
-              buys Swift or Strike — bigger, faster throws that learn new
-              patterns. Jump over a body and it cannot touch you.
+              Rocks throw themselves. Hosts come in slow rings, walls, and
+              orbits. A hundred gold buys Swift, Strike, or a circling scythe.
             </p>
             <label className="field">
               Seed
@@ -304,6 +303,7 @@ export function Overlay() {
                   <Coins size={14} />
                   {hud.coins}
                 </span>
+                {hud.wave > 0 && <span className="subtle">wave {hud.wave}</span>}
                 {hud.onWater && (
                   <span className="muted">
                     <Waves size={14} />
@@ -361,9 +361,10 @@ export function Overlay() {
           <div className="card narrow">
             <h2 className="pause-title">Paused</h2>
             <p className="pause-copy">The fold holds still until you wander again.</p>
-            {(hud.speedLv > 0 || hud.atkLv > 0) && (
+            {(hud.speedLv > 0 || hud.atkLv > 0 || hud.scytheLv > 0) && (
               <p className="pause-copy">
                 Swift {hud.speedLv} · Strike {ATK_NAME[hud.atkLv] ?? hud.atkLv}
+                {hud.scytheLv > 0 ? ` · Reap ${SCYTHE_NAME[hud.scytheLv]}` : ""}
               </p>
             )}
             <SexPicker />

@@ -279,7 +279,7 @@ button:not(:disabled),
 .market {
   pointer-events: auto;
   width: 100%;
-  max-width: 20rem;
+  max-width: 24rem;
   border-radius: var(--radius-lg);
   border: 1px solid var(--accent);
   background: rgba(23, 29, 26, 0.9);
@@ -299,7 +299,7 @@ button:not(:disabled),
 .market-row {
   margin-top: 8px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 8px;
 }
 

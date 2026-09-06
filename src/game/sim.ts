@@ -48,6 +48,7 @@ export type Player = {
   coins: number;
   speedLv: number;
   atkLv: number;
+  scytheLv: number;
 };
 
 export function spawnPlayer(world: World, sex: WandererSex = "female"): Player {
@@ -81,6 +82,7 @@ export function spawnPlayer(world: World, sex: WandererSex = "female"): Player {
     coins: 0,
     speedLv: 0,
     atkLv: 0,
+    scytheLv: 0,
   };
 }
 
