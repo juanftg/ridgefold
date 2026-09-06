@@ -152,6 +152,34 @@ function HealthPips({ hp, maxHp }: { hp: number; maxHp: number }) {
   );
 }
 
+function SexPicker() {
+  const sex = useGame((s) => s.sex);
+  const setSex = useGame((s) => s.setSex);
+  return (
+    <div className="sex">
+      <p className="sex-label">Who are you</p>
+      <div className="sex-row" role="group" aria-label="Wanderer">
+        <button
+          type="button"
+          className={sex === "female" ? "sex-btn on" : "sex-btn"}
+          aria-pressed={sex === "female"}
+          onClick={() => setSex("female")}
+        >
+          Female
+        </button>
+        <button
+          type="button"
+          className={sex === "male" ? "sex-btn on" : "sex-btn"}
+          aria-pressed={sex === "male"}
+          onClick={() => setSex("male")}
+        >
+          Male
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function Overlay() {
   const phase = useGame((s) => s.phase);
   const seed = useGame((s) => s.seed);
@@ -163,7 +191,17 @@ export function Overlay() {
   const newFold = useGame((s) => s.newFold);
   const revive = useGame((s) => s.revive);
   const hud = useGame((s) => s.hud);
-  const hint = hud.hint === "ledge" ? "Too steep \u2014 jump" : null;
+
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem("ridgefold-wanderer-ui") === "3") return;
+      sessionStorage.setItem("ridgefold-wanderer-ui", "3");
+      const p = useGame.getState().phase;
+      if (p !== "title") useGame.getState().toTitle();
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   return (
     <div className="overlay">
@@ -172,10 +210,11 @@ export function Overlay() {
           <div className="card">
             <p className="kicker">Endless isometric wander</p>
             <h1 className="title">Ridgefold</h1>
+            <SexPicker />
             <p className="lede">
-              Wide shelves, hill-climb mesas, and lakes at the floor. Hares share
-              the fold; wolves hunt. Ten hits and you drop. Fling a rock (F)
-              to send a wolf running.
+              Stand still and the fold sends worse: boar, bear, moose, a fuse
+              that craters the ground, then something older. Ten hits and you
+              drop.
             </p>
             <label className="field">
               Seed
@@ -195,9 +234,7 @@ export function Overlay() {
               </Button>
             </div>
             <p className="hint">
-              WASD and arrows always match the screen: up stays up as you rotate
-              the camera. Space jumps. F throws a rock. Q / E (or drag) turns.
-              Scroll zooms.
+              WASD match the screen. Space jumps. F throws a rock. Q / E turns.
             </p>
           </div>
         </div>
@@ -226,8 +263,13 @@ export function Overlay() {
               </div>
               <HealthPips hp={hud.hp} maxHp={hud.maxHp} />
             </div>
-            {hint && <div className="toast">{hint}</div>}
+            {hud.hint === "ledge" && <div className="toast">Too steep \u2014 jump</div>}
           </div>
+          {hud.hint === "still" && (
+            <div className="still-banner">
+              Keep moving \u2014 something noticed you
+            </div>
+          )}
           {phase !== "dead" && (
             <div className="pause-btn">
               <Button
@@ -268,6 +310,7 @@ export function Overlay() {
           <div className="card narrow">
             <h2 className="pause-title">Paused</h2>
             <p className="pause-copy">The fold holds still until you wander again.</p>
+            <SexPicker />
             <div className="row">
               <Button onClick={resume}>Resume</Button>
               <Button variant="secondary" onClick={newFold}>
