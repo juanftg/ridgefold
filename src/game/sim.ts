@@ -149,10 +149,18 @@ export function stepPlayer(world: World, p: Player, input: SampledInput, dt = FI
     while (dyaw > Math.PI) dyaw -= Math.PI * 2;
     while (dyaw < -Math.PI) dyaw += Math.PI * 2;
     p.yaw += dyaw * Math.min(1, dt * 12);
-    if (p.grounded) p.walkPhase += moved * (p.onWater ? 3.6 : 4.8);
+  } else if (wishMag > 0.001) {
+    const targetYaw = Math.atan2(-wishX, -wishZ);
+    let dyaw = targetYaw - p.yaw;
+    while (dyaw > Math.PI) dyaw -= Math.PI * 2;
+    while (dyaw < -Math.PI) dyaw += Math.PI * 2;
+    p.yaw += dyaw * Math.min(1, dt * 10);
+  }
+  if (p.grounded && wishMag > 0.001) {
+    p.walkPhase += dt * Math.PI * 2 * (p.onWater ? 0.92 : 1.28) * Math.min(1, wishMag);
   } else if (p.grounded) {
     const rest = Math.round(p.walkPhase / Math.PI) * Math.PI;
-    p.walkPhase += (rest - p.walkPhase) * Math.min(1, dt * 8);
+    p.walkPhase += (rest - p.walkPhase) * Math.min(1, dt * 5);
   }
 
   p.y += p.vy * dt;
@@ -168,10 +176,11 @@ export function stepPlayer(world: World, p: Player, input: SampledInput, dt = FI
   }
 
   if (p.vy <= 0 && p.y <= top + 0.16) {
+    const wasAir = true;
     if (p.vy < -2.5) {
       p.squash = 0.72;
       p.landPulse = 0.18;
-    } else {
+    } else if (wasAir) {
       p.squash = 0.88;
     }
     p.y = top;
