@@ -63,15 +63,11 @@ function TouchStick() {
   }, []);
 
   return (
-    <div
-      ref={pad}
-      className="relative size-32 touch-none rounded-full border border-border bg-surface/70"
-      aria-label="Move"
-    >
+    <div ref={pad} className="stick" aria-label="Move">
       <div
-        className="absolute left-1/2 top-1/2 size-12 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/80"
+        className="stick-knob"
         style={{
-          transform: `translate(calc(-50% + ${knob.x * 36}px), calc(-50% + ${-knob.y * 36}px))`,
+          transform: `translate(${knob.x * 36}px, ${-knob.y * 36}px)`,
         }}
       />
     </div>
@@ -89,7 +85,7 @@ function JumpButton() {
     <button
       type="button"
       aria-label="Jump"
-      className="size-16 touch-none rounded-full border border-border bg-accent text-accent-fg text-xs font-medium tracking-wide"
+      className="jump"
       onPointerDown={(e) => {
         e.preventDefault();
         press(true);
@@ -117,48 +113,38 @@ export function Overlay() {
     hud.hint === "gap"
       ? "The fold breaks here"
       : hud.hint === "ledge"
-        ? "Too steep — jump"
+        ? "Too steep \u2014 jump"
         : null;
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-10 text-fg">
+    <div className="overlay">
       {phase === "title" && (
-        <div className="pointer-events-auto flex h-full flex-col items-center justify-center bg-bg/30 px-6">
-          <div className="w-full max-w-md rounded-[var(--radius-xl)] border border-border bg-surface p-6 shadow-lg sm:p-8">
-            <p className="font-mono text-xs uppercase tracking-widest text-fg-muted">
-              Isometric wander
-            </p>
-            <h1 className="font-display mt-3 text-4xl font-medium leading-tight tracking-display sm:text-5xl">
-              Ridgefold
-            </h1>
-            <p className="mt-4 max-w-sm text-sm leading-relaxed text-fg-muted">
+        <div className="shade title">
+          <div className="card">
+            <p className="kicker">Isometric wander</p>
+            <h1 className="title">Ridgefold</h1>
+            <p className="lede">
               Hills rise and fall underfoot. Jump the ledges you cannot walk.
               Where the land splits, you stop.
             </p>
-            <label className="mt-6 block text-xs font-medium text-fg-muted">
+            <label className="field">
               Seed
               <input
                 value={seed}
                 onChange={(e) => setSeed(e.target.value)}
-                className="mt-2 h-11 w-full rounded-[var(--radius-md)] border border-border bg-bg px-3 font-mono text-sm text-fg outline-none ring-ring focus:ring-2"
+                className="seed-input"
                 spellCheck={false}
               />
             </label>
-            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+            <div className="row">
               <Button className="flex-1" size="lg" onClick={play}>
                 Wander
               </Button>
-              <Button
-                variant="secondary"
-                size="lg"
-                onClick={() => {
-                  newFold();
-                }}
-              >
+              <Button variant="secondary" size="lg" onClick={() => newFold()}>
                 New fold
               </Button>
             </div>
-            <p className="mt-5 text-xs leading-relaxed text-fg-subtle">
+            <p className="hint">
               WASD or arrows move on screen. Space jumps. Gaps cannot be walked;
               a short leap can clear a one-tile break or a high step.
             </p>
@@ -168,27 +154,23 @@ export function Overlay() {
 
       {phase !== "title" && (
         <>
-          <div className="pointer-events-auto absolute left-4 top-4 flex max-w-[calc(100%-6rem)] flex-col gap-2 sm:left-6 sm:top-6">
-            <div className="rounded-[var(--radius-lg)] border border-border bg-surface/80 px-3 py-2 backdrop-blur-sm">
-              <div className="flex items-center gap-2 font-mono text-xs uppercase tracking-widest text-fg">
-                <Compass className="size-3.5" />
+          <div className="hud">
+            <div className="chip">
+              <div className="chip-seed">
+                <Compass size={14} />
                 {hud.seed || seed}
               </div>
-              <div className="mt-1 flex items-center gap-3 text-sm tabular-nums">
-                <span className="inline-flex items-center gap-1.5 text-fg-muted">
-                  <Mountain className="size-3.5" />
+              <div className="chip-stats">
+                <span className="muted">
+                  <Mountain size={14} />
                   {hud.elevation.toFixed(1)}
                 </span>
-                <span className="text-fg-subtle">{hud.hops} jumps</span>
+                <span className="subtle">{hud.hops} jumps</span>
               </div>
             </div>
-            {hint && (
-              <div className="rounded-[var(--radius-md)] border border-border bg-surface px-3 py-2 text-sm text-fg">
-                {hint}
-              </div>
-            )}
+            {hint && <div className="toast">{hint}</div>}
           </div>
-          <div className="pointer-events-auto absolute right-4 top-4 sm:right-6 sm:top-6">
+          <div className="pause-btn">
             <Button
               variant="secondary"
               size="icon"
@@ -198,12 +180,10 @@ export function Overlay() {
               {phase === "paused" ? <Play /> : <Pause />}
             </Button>
           </div>
-          <div className="pointer-events-none absolute inset-x-0 bottom-5 hidden justify-center sm:flex">
-            <p className="rounded-full border border-border bg-surface/70 px-3 py-1 text-xs text-fg-muted">
-              WASD roam · Space jump · Esc pause
-            </p>
+          <div className="hint-keys">
+            <span>WASD roam \u00b7 Space jump \u00b7 Esc pause</span>
           </div>
-          <div className="pointer-events-auto absolute bottom-5 left-4 right-4 flex items-end justify-between sm:hidden">
+          <div className="touch-bar">
             <TouchStick />
             <JumpButton />
           </div>
@@ -211,15 +191,11 @@ export function Overlay() {
       )}
 
       {phase === "paused" && (
-        <div className="pointer-events-auto absolute inset-0 flex items-center justify-center bg-bg/60 px-6">
-          <div className="w-full max-w-sm rounded-[var(--radius-xl)] border border-border bg-surface p-6">
-            <h2 className="font-display text-2xl font-medium tracking-display">
-              Paused
-            </h2>
-            <p className="mt-2 text-sm text-fg-muted">
-              The fold holds still until you wander again.
-            </p>
-            <div className="mt-5 flex flex-col gap-2">
+        <div className="shade pause">
+          <div className="card narrow">
+            <h2 className="pause-title">Paused</h2>
+            <p className="pause-copy">The fold holds still until you wander again.</p>
+            <div className="row">
               <Button onClick={resume}>Resume</Button>
               <Button variant="secondary" onClick={newFold}>
                 New fold
