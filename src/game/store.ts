@@ -7,8 +7,9 @@ type Hud = {
   seed: string;
   elevation: number;
   hops: number;
-  hint: "none" | "gap" | "ledge";
+  hint: "none" | "ledge";
   grounded: boolean;
+  onWater: boolean;
 };
 
 type GameState = {
@@ -29,7 +30,14 @@ const DEFAULT_SEED = "ridge-mist";
 export const useGame = create<GameState>((set, get) => ({
   phase: "title",
   seed: DEFAULT_SEED,
-  hud: { seed: "", elevation: 0, hops: 0, hint: "none", grounded: true },
+  hud: {
+    seed: "",
+    elevation: 0,
+    hops: 0,
+    hint: "none",
+    grounded: true,
+    onWater: false,
+  },
   setSeed: (s) => set({ seed: s }),
   play: () => set({ phase: "playing" }),
   pause: () => {
