@@ -1,5 +1,5 @@
 import { BIOME_SIDE, BIOME_TOP, HEIGHT_UNIT } from "./constants";
-import type { Mob, Rock } from "./mobs";
+import type { Coin, Mob, Rock } from "./mobs";
 import type { Player } from "./sim";
 import { cellAt, type Prop, type World } from "./terrain";
 
@@ -728,19 +728,30 @@ export function createPaint(args: {
     }
 
     ctx.restore();
+
+    if (m.alive && m.hp < m.maxHp) {
+      const bw = 9 * k;
+      const ratio = Math.max(0, m.hp / m.maxHp);
+      const by = sy - (m.kind === "cthulhu" ? 22 : 16) * k;
+      ctx.fillStyle = "rgba(16, 20, 18, 0.45)";
+      ctx.fillRect(sx - bw * 0.5, by, bw, 1.4 * k);
+      ctx.fillStyle = "#c45c4a";
+      ctx.fillRect(sx - bw * 0.5, by, bw * ratio, 1.4 * k);
+    }
   };
 
   const drawRock = (r: Rock) => {
     const zoom = getZoom();
     const elev = r.y / HEIGHT_UNIT;
     const [sx, sy] = project(r.x, r.z, elev);
-    const k = zoom * 0.9;
+    const s = r.scale || 1;
+    const k = zoom * 0.9 * s;
     const [gsx, gsy] = project(r.x, r.z, 0.2);
     ctx.fillStyle = "rgba(16, 20, 18, 0.22)";
     ctx.beginPath();
     ctx.ellipse(gsx, gsy + 1.2 * k, 2.4 * k, 1.2 * k, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = "#8a8074";
+    ctx.fillStyle = r.kind === "orbit" ? "#c4b08a" : "#8a8074";
     ctx.beginPath();
     ctx.ellipse(sx, sy - 1.1 * k, 2.15 * k, 1.55 * k, 0.35, 0, Math.PI * 2);
     ctx.fill();
@@ -748,11 +759,40 @@ export function createPaint(args: {
     ctx.beginPath();
     ctx.ellipse(sx - 0.5 * k, sy - 1.7 * k, 0.85 * k, 0.55 * k, 0.2, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = "#5c564c";
+    ctx.strokeStyle = r.homing ? "#c45c4a" : "#5c564c";
     ctx.lineWidth = Math.max(0.7, zoom * 0.35);
     ctx.beginPath();
     ctx.ellipse(sx, sy - 1.1 * k, 2.15 * k, 1.55 * k, 0.35, 0, Math.PI * 2);
     ctx.stroke();
+  };
+
+  const drawCoin = (c: Coin, t: number) => {
+    const zoom = getZoom();
+    const bob = Math.sin(t * 5.4 + c.x * 3) * 0.12;
+    const elev = (c.y + bob) / HEIGHT_UNIT;
+    const [sx, sy] = project(c.x, c.z, elev);
+    const k = zoom * (0.72 + Math.min(0.45, c.value / 40));
+    ctx.fillStyle = "rgba(16, 20, 18, 0.26)";
+    ctx.beginPath();
+    ctx.ellipse(sx, sy + 2.1 * k, 2.4 * k, 1.15 * k, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#c6a24a";
+    ctx.beginPath();
+    ctx.ellipse(sx, sy - 1.4 * k, 2.35 * k, 1.7 * k, 0.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#e8d08a";
+    ctx.beginPath();
+    ctx.ellipse(sx - 0.35 * k, sy - 2.0 * k, 1.15 * k, 0.8 * k, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#8a6a2c";
+    ctx.lineWidth = Math.max(0.7, zoom * 0.32);
+    ctx.beginPath();
+    ctx.ellipse(sx, sy - 1.4 * k, 2.35 * k, 1.7 * k, 0.1, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "#8a6a2c";
+    ctx.beginPath();
+    ctx.ellipse(sx, sy - 1.4 * k, 0.7 * k, 0.5 * k, 0.1, 0, Math.PI * 2);
+    ctx.fill();
   };
 
   const drawSpark = (x: number, z: number, y: number, life: number) => {
@@ -769,5 +809,5 @@ export function createPaint(args: {
     ctx.fill();
   };
 
-  return { drawBlock, drawProp, drawExplorer, drawMob, drawRock, drawSpark };
+  return { drawBlock, drawProp, drawExplorer, drawMob, drawRock, drawCoin, drawSpark };
 }

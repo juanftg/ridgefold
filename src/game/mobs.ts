@@ -2,27 +2,31 @@ import {
   BLAST_DAMAGE,
   BLAST_RADIUS,
   CHUNK_SIZE,
+  COIN_MAGNET_R,
+  COIN_PICKUP_R,
   FUSE_RANGE,
   FUSE_TIME,
   GRAVITY,
   HARE_FLEE_R,
-  HARE_ROCK_FLEE_T,
   HEIGHT_UNIT,
   IDLE_FIRST,
   IDLE_GAP,
+  MAX_ATK_LV,
+  MAX_SPEED_LV,
   PLAYER_IFRAME,
   PLAYER_RADIUS,
-  ROCK_COOLDOWN,
   ROCK_SPEED,
+  SHOP_COST,
   WALK_STEP,
   WOLF_AGGRO_R,
-  WOLF_FLEE_T,
 } from "./constants";
 import { mulberry32 } from "./rng";
 import type { Player } from "./sim";
 import { cellAt, chunkKey, deformCrater, tileTop, worldToGrid, type World } from "./terrain";
 
 export type MobKind = "hare" | "wolf" | "boar" | "bear" | "moose" | "fuse" | "cthulhu";
+export type BuyKind = "speed" | "attack";
+export type RockKind = "shot" | "orbit";
 
 export const IDLE_HUNT: MobKind[] = ["boar", "bear", "moose", "fuse", "cthulhu"];
 
@@ -34,6 +38,28 @@ export const MOB_DAMAGE: Record<MobKind, number> = {
   moose: 4,
   fuse: 0,
   cthulhu: 5,
+};
+
+export const ATK_NAME = [
+  "pebble",
+  "heavier",
+  "seeking",
+  "twin",
+  "orbit",
+  "fan",
+  "homing",
+  "storm",
+  "tempest",
+] as const;
+
+const DROP: Record<MobKind, { chance: number; min: number; max: number }> = {
+  hare: { chance: 0.42, min: 4, max: 8 },
+  wolf: { chance: 0.72, min: 8, max: 14 },
+  boar: { chance: 0.8, min: 12, max: 18 },
+  bear: { chance: 0.9, min: 16, max: 24 },
+  moose: { chance: 0.92, min: 20, max: 28 },
+  fuse: { chance: 0.78, min: 14, max: 22 },
+  cthulhu: { chance: 1, min: 32, max: 48 },
 };
 
 type KindStats = {
@@ -55,6 +81,35 @@ const STATS: Record<MobKind, KindStats> = {
   fuse: { hp: 3, radius: 0.32, aggressive: true, walk: 1.85, chase: 2.82, flee: 4.9, aggro: 9.4 },
   cthulhu: { hp: 12, radius: 0.74, aggressive: true, walk: 1.48, chase: 2.7, flee: 2.15, aggro: 16.5 },
 };
+
+export type AttackStats = {
+  dmg: number;
+  count: number;
+  cooldown: number;
+  speed: number;
+  scale: number;
+  pierce: number;
+  homing: boolean;
+  auto: boolean;
+  orbits: number;
+  spread: number;
+};
+
+export function attackStats(lv: number): AttackStats {
+  const n = Math.max(0, Math.min(MAX_ATK_LV, lv));
+  return {
+    dmg: n >= 5 ? 3 : n >= 1 ? 2 : 1,
+    count: n >= 5 ? 3 : n >= 3 ? 2 : 1,
+    cooldown: Math.max(0.16, 0.52 - n * 0.045),
+    speed: ROCK_SPEED + n * 1.15,
+    scale: 1 + Math.min(1.35, n * 0.18),
+    pierce: n >= 6 ? 2 : n >= 5 ? 1 : 0,
+    homing: n >= 6,
+    auto: n >= 2,
+    orbits: n >= 7 ? 4 : n >= 5 ? 3 : n >= 4 ? 2 : 0,
+    spread: n >= 5 ? 0.32 : n >= 3 ? 0.22 : 0,
+  };
+}
 
 export type Mob = {
   id: number;
@@ -91,11 +146,31 @@ export type Rock = {
   vz: number;
   alive: boolean;
   age: number;
+  dmg: number;
+  scale: number;
+  pierce: number;
+  homing: boolean;
+  kind: RockKind;
+  orbitA: number;
+  orbitR: number;
+  hits: number[];
+};
+
+export type Coin = {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vz: number;
+  value: number;
+  age: number;
+  alive: boolean;
 };
 
 export type MobField = {
   mobs: Mob[];
   rocks: Rock[];
+  coins: Coin[];
   nextId: number;
   spawned: Set<string>;
   idleT: number;
@@ -104,12 +179,14 @@ export type MobField = {
 
 export type MobEvents = {
   playerDamage: number;
-  scares: number;
+  hits: number;
+  kills: number;
+  coins: number;
   explosions: { x: number; z: number }[];
 };
 
 export function createMobField(): MobField {
-  return { mobs: [], rocks: [], nextId: 1, spawned: new Set(), idleT: 0, idleWave: 0 };
+  return { mobs: [], rocks: [], coins: [], nextId: 1, spawned: new Set(), idleT: 0, idleWave: 0 };
 }
 
 function sampleTop(world: World, x: number, z: number) {
@@ -231,6 +308,10 @@ export function pruneMobs(field: MobField, x: number, z: number, keepChunks: num
     if (Math.abs(m.cx - pcx) > keepChunks || Math.abs(m.cz - pcz) > keepChunks) return false;
     return true;
   });
+  field.coins = field.coins.filter((c) => {
+    if (!c.alive) return false;
+    return Math.hypot(c.x - x, c.z - z) < keepChunks * CHUNK_SIZE;
+  });
   for (const key of [...field.spawned]) {
     const [sx, sz] = key.split(":").map(Number);
     if (Math.abs((sx ?? 0) - pcx) > keepChunks || Math.abs((sz ?? 0) - pcz) > keepChunks) {
@@ -239,36 +320,64 @@ export function pruneMobs(field: MobField, x: number, z: number, keepChunks: num
   }
 }
 
-function fleeTime(kind: MobKind): number {
-  if (kind === "hare") return HARE_ROCK_FLEE_T;
-  if (kind === "cthulhu") return 1.7;
-  if (kind === "fuse") return 4.2;
-  if (kind === "moose" || kind === "bear") return 3.4;
-  return WOLF_FLEE_T;
-}
-
-function scareMob(m: Mob, player: Player) {
-  m.fleeT = fleeTime(m.kind);
-  m.hurtT = 0.22;
-  m.thinkT = 0;
-  m.fuseT = 0;
-  const dx = m.x - player.x;
-  const dz = m.z - player.z;
-  const dist = Math.hypot(dx, dz);
-  if (dist > 0.001) {
-    m.wishX = dx / dist;
-    m.wishZ = dz / dist;
-  } else {
-    m.wishX = -Math.sin(player.yaw);
-    m.wishZ = -Math.cos(player.yaw);
+function dropCoins(field: MobField, m: Mob) {
+  const spec = DROP[m.kind];
+  if (Math.random() > spec.chance) return;
+  const value = spec.min + Math.floor(Math.random() * (spec.max - spec.min + 1));
+  const n = value >= 28 ? 3 : value >= 16 ? 2 : 1;
+  const each = Math.max(1, Math.floor(value / n));
+  let left = value;
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const v = i === n - 1 ? left : each;
+    left -= v;
+    field.coins.push({
+      x: m.x + Math.cos(a) * 0.22,
+      y: m.y + 0.35,
+      z: m.z + Math.sin(a) * 0.22,
+      vx: Math.cos(a) * 1.4,
+      vz: Math.sin(a) * 1.4,
+      value: v,
+      age: 0,
+      alive: true,
+    });
   }
 }
 
-export function throwRock(_world: World, field: MobField, player: Player): boolean {
-  if (player.throwCd > 0 || player.hp <= 0) return false;
-  if (field.rocks.filter((r) => r.alive).length >= 3) return false;
-  player.throwCd = ROCK_COOLDOWN;
-  player.squash = 1.12;
+function killMob(field: MobField, m: Mob, events: MobEvents) {
+  if (!m.alive) return;
+  m.alive = false;
+  m.hurtT = 0.2;
+  m.fuseT = 0;
+  events.kills += 1;
+  dropCoins(field, m);
+}
+
+function hitMob(field: MobField, m: Mob, dmg: number, events: MobEvents) {
+  if (!m.alive) return;
+  m.hp -= dmg;
+  m.hurtT = 0.18;
+  m.fuseT = 0;
+  events.hits += 1;
+  if (m.kind === "hare") m.fleeT = 2.4;
+  if (m.hp <= 0) killMob(field, m, events);
+}
+
+function nearestHostile(field: MobField, player: Player, maxD: number): Mob | null {
+  let best: Mob | null = null;
+  let bestD = maxD;
+  for (const m of field.mobs) {
+    if (!m.alive || !m.aggressive) continue;
+    const d = Math.hypot(m.x - player.x, m.z - player.z);
+    if (d < bestD) {
+      bestD = d;
+      best = m;
+    }
+  }
+  return best;
+}
+
+function aimDir(field: MobField, player: Player): { x: number; z: number; dist: number } {
   let fx = -Math.sin(player.yaw);
   let fz = -Math.cos(player.yaw);
   let mag = Math.hypot(fx, fz);
@@ -281,17 +390,17 @@ export function throwRock(_world: World, field: MobField, player: Player): boole
   fz /= mag;
   let aimX = fx;
   let aimZ = fz;
-  let aimD = 7;
+  let aimD = 8;
   let aimed = false;
   for (const m of field.mobs) {
-    if (!m.alive || !m.aggressive) continue;
+    if (!m.alive || (!m.aggressive && m.kind !== "hare")) continue;
     const dx = m.x - player.x;
     const dz = m.z - player.z;
     const d = Math.hypot(dx, dz);
     if (d < 0.15 || d > 12) continue;
     const nx = dx / d;
     const nz = dz / d;
-    if (nx * fx + nz * fz < -0.15) continue;
+    if (nx * fx + nz * fz < -0.12) continue;
     if (!aimed || d < aimD) {
       aimed = true;
       aimD = d;
@@ -299,18 +408,110 @@ export function throwRock(_world: World, field: MobField, player: Player): boole
       aimZ = nz;
     }
   }
-  const range = aimed ? aimD : 7;
-  const lift = 2.45 + Math.min(3.6, range * 0.2);
-  field.rocks.push({
-    x: player.x + aimX * 0.38,
-    y: player.y + 0.58,
-    z: player.z + aimZ * 0.38,
-    vx: aimX * ROCK_SPEED,
+  return { x: aimX, z: aimZ, dist: aimed ? aimD : 6 };
+}
+
+function makeShot(
+  player: Player,
+  ax: number,
+  az: number,
+  st: AttackStats,
+  range: number,
+): Rock {
+  const mag = Math.hypot(ax, az) || 1;
+  const nx = ax / mag;
+  const nz = az / mag;
+  const lift = 1.35 + Math.min(2.4, range * 0.12);
+  return {
+    x: player.x + nx * 0.38,
+    y: player.y + 0.52,
+    z: player.z + nz * 0.38,
+    vx: nx * st.speed,
     vy: lift,
-    vz: aimZ * ROCK_SPEED,
+    vz: nz * st.speed,
     alive: true,
     age: 0,
-  });
+    dmg: st.dmg,
+    scale: st.scale,
+    pierce: st.pierce,
+    homing: st.homing,
+    kind: "shot",
+    orbitA: 0,
+    orbitR: 0,
+    hits: [],
+  };
+}
+
+export function throwRock(_world: World, field: MobField, player: Player): boolean {
+  if (player.throwCd > 0 || player.hp <= 0) return false;
+  const liveShots = field.rocks.filter((r) => r.alive && r.kind === "shot").length;
+  if (liveShots >= 10) return false;
+  const st = attackStats(player.atkLv);
+  player.throwCd = st.cooldown;
+  player.squash = 1.12;
+  const aim = aimDir(field, player);
+  const count = st.count;
+  const spread = st.spread;
+  if (count <= 1) {
+    field.rocks.push(makeShot(player, aim.x, aim.z, st, aim.dist));
+    return true;
+  }
+  const base = Math.atan2(aim.z, aim.x);
+  for (let i = 0; i < count; i++) {
+    const t = count === 1 ? 0 : (i / (count - 1) - 0.5) * 2;
+    const a = base + t * spread;
+    field.rocks.push(makeShot(player, Math.cos(a), Math.sin(a), st, aim.dist));
+  }
+  return true;
+}
+
+function syncOrbits(field: MobField, player: Player) {
+  const st = attackStats(player.atkLv);
+  const want = player.hp > 0 ? st.orbits : 0;
+  const orbits = field.rocks.filter((r) => r.kind === "orbit" && r.alive);
+  if (orbits.length === want) {
+    for (const r of orbits) {
+      r.dmg = st.dmg;
+      r.scale = st.scale * 0.82;
+      r.orbitR = 1.28 + want * 0.12;
+    }
+    return;
+  }
+  field.rocks = field.rocks.filter((r) => r.kind !== "orbit");
+  for (let i = 0; i < want; i++) {
+    const a = (i / want) * Math.PI * 2;
+    field.rocks.push({
+      x: player.x,
+      y: player.y + 0.55,
+      z: player.z,
+      vx: 0,
+      vy: 0,
+      vz: 0,
+      alive: true,
+      age: 0,
+      dmg: st.dmg,
+      scale: st.scale * 0.82,
+      pierce: 99,
+      homing: false,
+      kind: "orbit",
+      orbitA: a,
+      orbitR: 1.28 + want * 0.12,
+      hits: [],
+    });
+  }
+}
+
+export function tryBuy(player: Player, field: MobField, kind: BuyKind): boolean {
+  if (player.coins < SHOP_COST) return false;
+  if (kind === "speed") {
+    if (player.speedLv >= MAX_SPEED_LV) return false;
+    player.speedLv += 1;
+  } else {
+    if (player.atkLv >= MAX_ATK_LV) return false;
+    player.atkLv += 1;
+  }
+  player.coins -= SHOP_COST;
+  syncOrbits(field, player);
   return true;
 }
 
@@ -339,16 +540,54 @@ function stepIdleHunt(world: World, field: MobField, player: Player, dt: number)
   field.idleWave += 1;
 }
 
+function stepCoins(world: World, field: MobField, player: Player, dt: number, events: MobEvents) {
+  for (const c of field.coins) {
+    if (!c.alive) continue;
+    c.age += dt;
+    const floor = tileTop(sampleTop(world, c.x, c.z));
+    c.y += (floor + 0.28 - c.y) * (1 - Math.exp(-dt * 8));
+    const dx = player.x - c.x;
+    const dz = player.z - c.z;
+    const dist = Math.hypot(dx, dz);
+    if (player.hp > 0 && dist < COIN_MAGNET_R) {
+      const pull = dist < 1.1 ? 16 : 9;
+      const inv = dist > 0.001 ? 1 / dist : 0;
+      c.vx += dx * inv * pull * dt;
+      c.vz += dz * inv * pull * dt;
+    } else {
+      c.vx *= Math.exp(-dt * 4.5);
+      c.vz *= Math.exp(-dt * 4.5);
+    }
+    c.x += c.vx * dt;
+    c.z += c.vz * dt;
+    if (player.hp > 0 && dist < COIN_PICKUP_R) {
+      player.coins += c.value;
+      events.coins += c.value;
+      c.alive = false;
+    } else if (c.age > 28) {
+      c.alive = false;
+    }
+  }
+  field.coins = field.coins.filter((c) => c.alive);
+}
+
 export function stepMobs(world: World, field: MobField, player: Player, dt: number): MobEvents {
-  const events: MobEvents = { playerDamage: 0, scares: 0, explosions: [] };
+  const events: MobEvents = { playerDamage: 0, hits: 0, kills: 0, coins: 0, explosions: [] };
   stepIdleHunt(world, field, player, dt);
+  syncOrbits(field, player);
+
+  const st = attackStats(player.atkLv);
+  if (st.auto && player.hp > 0 && player.throwCd <= 0) {
+    const t = nearestHostile(field, player, 11.5);
+    if (t) throwRock(world, field, player);
+  }
 
   for (const m of field.mobs) {
     if (!m.alive) continue;
     m.hurtT = Math.max(0, m.hurtT - dt);
     m.fleeT = Math.max(0, m.fleeT - dt);
     m.thinkT -= dt;
-    const st = STATS[m.kind];
+    const ks = STATS[m.kind];
     const dx = player.x - m.x;
     const dz = player.z - m.z;
     const dist = Math.hypot(dx, dz);
@@ -360,7 +599,7 @@ export function stepMobs(world: World, field: MobField, player: Player, dt: numb
         m.wishX = -dx * inv;
         m.wishZ = -dz * inv;
       } else if (m.aggressive) {
-        if (dist < st.aggro && player.hp > 0) {
+        if (dist < ks.aggro && player.hp > 0) {
           const inv = dist > 0.001 ? 1 / dist : 0;
           m.wishX = dx * inv;
           m.wishZ = dz * inv;
@@ -380,9 +619,9 @@ export function stepMobs(world: World, field: MobField, player: Player, dt: numb
       }
     }
     const cell = sampleTop(world, m.x, m.z);
-    const chasing = m.aggressive && !scared && dist < st.aggro;
+    const chasing = m.aggressive && !scared && dist < ks.aggro;
     const fleeing = scared || (!m.aggressive && dist < HARE_FLEE_R);
-    let speed = chasing ? st.chase : fleeing ? st.flee : st.walk;
+    let speed = chasing ? ks.chase : fleeing ? ks.flee : ks.walk;
     if (m.kind === "fuse" && !scared && dist < FUSE_RANGE && player.hp > 0) {
       m.fuseT += dt;
       speed *= 0.18;
@@ -417,35 +656,66 @@ export function stepMobs(world: World, field: MobField, player: Player, dt: numb
       m.yaw = Math.atan2(-m.vx, -m.vz);
     }
     if (m.kind === "fuse" && m.fuseT >= FUSE_TIME && m.alive) {
-      m.alive = false;
-      m.hurtT = 0.2;
+      killMob(field, m, events);
       events.explosions.push({ x: m.x, z: m.z });
     }
   }
 
+  const orbitSpeed = 2.35 + player.atkLv * 0.22;
   for (const rock of field.rocks) {
     if (!rock.alive) continue;
     rock.age += dt;
-    rock.vy -= GRAVITY * 0.82 * dt;
-    rock.x += rock.vx * dt;
-    rock.y += rock.vy * dt;
-    rock.z += rock.vz * dt;
-    const floor = tileTop(sampleTop(world, rock.x, rock.z));
-    if (rock.y <= floor + 0.06 || rock.age > 1.55) {
-      rock.alive = false;
-      continue;
+    if (rock.kind === "orbit") {
+      rock.orbitA += dt * orbitSpeed;
+      rock.x = player.x + Math.cos(rock.orbitA) * rock.orbitR;
+      rock.z = player.z + Math.sin(rock.orbitA) * rock.orbitR;
+      rock.y = player.y + 0.58 + Math.sin(rock.orbitA * 2) * 0.08;
+      if (player.hp <= 0) rock.alive = false;
+    } else {
+      if (rock.homing) {
+        const t = nearestHostile(field, player, 14);
+        if (t) {
+          const dx = t.x - rock.x;
+          const dz = t.z - rock.z;
+          const d = Math.hypot(dx, dz);
+          const spd = Math.hypot(rock.vx, rock.vz) || st.speed;
+          if (d > 0.04) {
+            const k = 1 - Math.exp(-dt * 6.4);
+            const nx = dx / d;
+            const nz = dz / d;
+            const vx = rock.vx * (1 - k) + nx * spd * k;
+            const vz = rock.vz * (1 - k) + nz * spd * k;
+            const mag = Math.hypot(vx, vz) || 1;
+            rock.vx = (vx / mag) * spd;
+            rock.vz = (vz / mag) * spd;
+          }
+        }
+      }
+      rock.vy -= GRAVITY * 0.82 * dt;
+      rock.x += rock.vx * dt;
+      rock.y += rock.vy * dt;
+      rock.z += rock.vz * dt;
+      const floor = tileTop(sampleTop(world, rock.x, rock.z));
+      if (rock.y <= floor + 0.06 || rock.age > 1.55) {
+        rock.alive = false;
+        continue;
+      }
     }
     for (const m of field.mobs) {
       if (!m.alive) continue;
+      if (rock.hits.includes(m.id)) continue;
+      if (rock.kind === "orbit" && m.hurtT > 0.05) continue;
       const dx = rock.x - m.x;
       const dz = rock.z - m.z;
-      const reach = m.radius + 0.55;
+      const reach = m.radius + 0.62 * rock.scale;
       if (dx * dx + dz * dz > reach * reach) continue;
-      if (rock.y < m.y - 0.12 || rock.y > m.y + 1.15) continue;
-      scareMob(m, player);
-      rock.alive = false;
-      events.scares += 1;
-      break;
+      if (rock.y < m.y - 0.25 || rock.y > m.y + 1.85) continue;
+      hitMob(field, m, rock.dmg, events);
+      rock.hits.push(m.id);
+      if (rock.kind === "shot" && rock.hits.length > rock.pierce) {
+        rock.alive = false;
+        break;
+      }
     }
   }
   field.rocks = field.rocks.filter((r) => r.alive);
@@ -464,9 +734,14 @@ export function stepMobs(world: World, field: MobField, player: Player, dt: numb
     }
     for (const o of field.mobs) {
       if (!o.alive) continue;
-      if (Math.hypot(o.x - boom.x, o.z - boom.z) < 3.3) scareMob(o, player);
+      if (Math.hypot(o.x - boom.x, o.z - boom.z) < 3.3) {
+        o.fleeT = 2.2;
+        o.hurtT = 0.18;
+      }
     }
   }
+
+  stepCoins(world, field, player, dt, events);
 
   if (player.hp <= 0) {
     field.mobs = field.mobs.filter((m) => m.alive || m.hurtT > 0);
@@ -478,6 +753,7 @@ export function stepMobs(world: World, field: MobField, player: Player, dt: numb
     const dmg = MOB_DAMAGE[m.kind];
     if (dmg <= 0) continue;
     if (player.iFrame > 0) continue;
+    if (!player.grounded) continue;
     const dx = player.x - m.x;
     const dz = player.z - m.z;
     const reach = (player.radius ?? PLAYER_RADIUS) + m.radius;

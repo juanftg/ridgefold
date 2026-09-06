@@ -84,6 +84,21 @@ export function createAudio() {
       beep(148, 0.22, "square", 0.055, -90);
       beep(44, 0.48, "triangle", 0.07, -8);
     },
+    hit() {
+      beep(260, 0.07, "square", 0.04, -80);
+    },
+    kill() {
+      beep(140, 0.16, "triangle", 0.055, -70);
+      beep(90, 0.18, "sine", 0.04, -30);
+    },
+    coin() {
+      beep(740, 0.09, "triangle", 0.04, 180);
+      beep(980, 0.12, "sine", 0.03, 40);
+    },
+    buy() {
+      beep(420, 0.1, "triangle", 0.05, 80);
+      beep(620, 0.16, "sine", 0.045, 140);
+    },
   };
 }
 

@@ -9,6 +9,7 @@ import {
   MOVE_SPEED,
   PLAYER_MAX_HP,
   PLAYER_RADIUS,
+  SPEED_PER_LV,
   WALK_STEP,
   WATER_SPEED,
 } from "./constants";
@@ -44,6 +45,9 @@ export type Player = {
   radius: number;
   throwCd: number;
   sex: WandererSex;
+  coins: number;
+  speedLv: number;
+  atkLv: number;
 };
 
 export function spawnPlayer(world: World, sex: WandererSex = "female"): Player {
@@ -74,6 +78,9 @@ export function spawnPlayer(world: World, sex: WandererSex = "female"): Player {
     radius: PLAYER_RADIUS,
     throwCd: 0,
     sex,
+    coins: 0,
+    speedLv: 0,
+    atkLv: 0,
   };
 }
 
@@ -123,7 +130,8 @@ export function stepPlayer(world: World, p: Player, input: SampledInput, dt = FI
   else p.coyote = Math.max(0, p.coyote - dt);
 
   const wishMag = Math.hypot(input.worldX, input.worldZ);
-  const base = p.onWater ? WATER_SPEED : MOVE_SPEED;
+  const boost = 1 + p.speedLv * SPEED_PER_LV;
+  const base = (p.onWater ? WATER_SPEED : MOVE_SPEED) * boost;
   const speed = base * (p.grounded ? 1 : 0.92);
   const wishX = wishMag > 0.001 ? (input.worldX / wishMag) * speed : 0;
   const wishZ = wishMag > 0.001 ? (input.worldZ / wishMag) * speed : 0;

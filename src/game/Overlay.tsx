@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Compass, Mountain, Pause, Play, RotateCcw, RotateCw, Waves } from "lucide-react";
+import { Compass, Coins, Mountain, Pause, Play, RotateCcw, RotateCw, Swords, Waves, Wind } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PLAYER_MAX_HP } from "./constants";
+import { MAX_ATK_LV, MAX_SPEED_LV, PLAYER_MAX_HP, SHOP_COST } from "./constants";
+import { ATK_NAME } from "./mobs";
 import { useGame } from "./store";
 
 function TouchStick() {
@@ -152,6 +153,51 @@ function HealthPips({ hp, maxHp }: { hp: number; maxHp: number }) {
   );
 }
 
+function FoldMarket() {
+  const coins = useGame((s) => s.hud.coins);
+  const speedLv = useGame((s) => s.hud.speedLv);
+  const atkLv = useGame((s) => s.hud.atkLv);
+  const buy = useGame((s) => s.buy);
+  const phase = useGame((s) => s.phase);
+  if (phase !== "playing") return null;
+  if (coins < SHOP_COST) return null;
+  const speedMax = speedLv >= MAX_SPEED_LV;
+  const atkMax = atkLv >= MAX_ATK_LV;
+  if (speedMax && atkMax) return null;
+  const nextAtk = ATK_NAME[Math.min(MAX_ATK_LV, atkLv + 1)] ?? "tempest";
+  return (
+    <div className="market">
+      <p className="market-kicker">Fold market · {SHOP_COST}</p>
+      <div className="market-row">
+        <button
+          type="button"
+          className="market-btn"
+          disabled={speedMax}
+          onClick={() => buy("speed")}
+        >
+          <span className="market-title">
+            <Wind size={14} />
+            Swift
+          </span>
+          <span className="market-sub">{speedMax ? "maxed" : `speed ${speedLv + 1}`}</span>
+        </button>
+        <button
+          type="button"
+          className="market-btn"
+          disabled={atkMax}
+          onClick={() => buy("attack")}
+        >
+          <span className="market-title">
+            <Swords size={14} />
+            Strike
+          </span>
+          <span className="market-sub">{atkMax ? "maxed" : nextAtk}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SexPicker() {
   const sex = useGame((s) => s.sex);
   const setSex = useGame((s) => s.setSex);
@@ -212,9 +258,9 @@ export function Overlay() {
             <h1 className="title">Ridgefold</h1>
             <SexPicker />
             <p className="lede">
-              Stand still and the fold sends worse: boar, bear, moose, a fuse
-              that craters the ground, then something older. Ten hits and you
-              drop.
+              Rocks take creatures down. They sometimes leave gold. A hundred
+              buys Swift or Strike — bigger, faster throws that learn new
+              patterns. Jump over a body and it cannot touch you.
             </p>
             <label className="field">
               Seed
@@ -254,6 +300,10 @@ export function Overlay() {
                   {hud.elevation.toFixed(1)}
                 </span>
                 <span className="subtle">{hud.hops} jumps</span>
+                <span className="coin-stat">
+                  <Coins size={14} />
+                  {hud.coins}
+                </span>
                 {hud.onWater && (
                   <span className="muted">
                     <Waves size={14} />
@@ -263,11 +313,12 @@ export function Overlay() {
               </div>
               <HealthPips hp={hud.hp} maxHp={hud.maxHp} />
             </div>
-            {hud.hint === "ledge" && <div className="toast">Too steep \u2014 jump</div>}
+            <FoldMarket />
+            {hud.hint === "ledge" && <div className="toast">Too steep — jump</div>}
           </div>
           {hud.hint === "still" && (
             <div className="still-banner">
-              Keep moving \u2014 something noticed you
+              Keep moving — something noticed you
             </div>
           )}
           {phase !== "dead" && (
@@ -283,7 +334,7 @@ export function Overlay() {
             </div>
           )}
           <div className="hint-keys">
-            <span>WASD roam \u00b7 Space jump \u00b7 F rock \u00b7 Q/E turn</span>
+            <span>WASD roam · Space jump · F rock · Q/E turn</span>
           </div>
           <div className="touch-bar">
             <TouchStick />
@@ -310,6 +361,11 @@ export function Overlay() {
           <div className="card narrow">
             <h2 className="pause-title">Paused</h2>
             <p className="pause-copy">The fold holds still until you wander again.</p>
+            {(hud.speedLv > 0 || hud.atkLv > 0) && (
+              <p className="pause-copy">
+                Swift {hud.speedLv} · Strike {ATK_NAME[hud.atkLv] ?? hud.atkLv}
+              </p>
+            )}
             <SexPicker />
             <div className="row">
               <Button onClick={resume}>Resume</Button>
@@ -330,7 +386,8 @@ export function Overlay() {
             <p className="kicker">Ten hits</p>
             <h2 className="pause-title">Folded</h2>
             <p className="pause-copy">
-              The land keeps going. Stand up on this seed, or take another fold.
+              The land keeps going. You held {hud.coins} gold. Stand up on this
+              seed, or take another fold.
             </p>
             <div className="row">
               <Button onClick={revive}>Stand up</Button>

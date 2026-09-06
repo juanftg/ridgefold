@@ -4,6 +4,7 @@ import { randomSeedWord } from "./rng";
 
 export type Phase = "title" | "playing" | "paused" | "dead";
 export type WandererSex = "female" | "male";
+export type BuyKind = "speed" | "attack";
 
 type Hud = {
   seed: string;
@@ -14,6 +15,9 @@ type Hud = {
   onWater: boolean;
   hp: number;
   maxHp: number;
+  coins: number;
+  speedLv: number;
+  atkLv: number;
 };
 
 type GameState = {
@@ -22,6 +26,7 @@ type GameState = {
   runId: number;
   sex: WandererSex;
   hud: Hud;
+  pendingBuy: BuyKind | null;
   setSeed: (s: string) => void;
   setSex: (s: WandererSex) => void;
   play: () => void;
@@ -32,6 +37,8 @@ type GameState = {
   die: () => void;
   revive: () => void;
   setHud: (h: Partial<Hud>) => void;
+  buy: (kind: BuyKind) => void;
+  clearBuy: () => void;
 };
 
 const DEFAULT_SEED = "ridge-mist";
@@ -47,21 +54,27 @@ function readSex(): WandererSex {
   return "female";
 }
 
+const emptyHud = (): Hud => ({
+  seed: "",
+  elevation: 0,
+  hops: 0,
+  hint: "none",
+  grounded: true,
+  onWater: false,
+  hp: PLAYER_MAX_HP,
+  maxHp: PLAYER_MAX_HP,
+  coins: 0,
+  speedLv: 0,
+  atkLv: 0,
+});
+
 export const useGame = create<GameState>((set, get) => ({
   phase: "title",
   seed: DEFAULT_SEED,
   runId: 0,
   sex: typeof window === "undefined" ? "female" : readSex(),
-  hud: {
-    seed: "",
-    elevation: 0,
-    hops: 0,
-    hint: "none",
-    grounded: true,
-    onWater: false,
-    hp: PLAYER_MAX_HP,
-    maxHp: PLAYER_MAX_HP,
-  },
+  hud: emptyHud(),
+  pendingBuy: null,
   setSeed: (s) => set({ seed: s }),
   setSex: (sex) => {
     try {
@@ -82,9 +95,14 @@ export const useGame = create<GameState>((set, get) => ({
     set((s) => ({
       phase: "title",
       runId: s.phase === "dead" ? s.runId + 1 : s.runId,
+      pendingBuy: null,
     })),
-  newFold: () => set({ seed: randomSeedWord(), phase: "playing" }),
-  die: () => set({ phase: "dead" }),
-  revive: () => set({ phase: "playing", runId: get().runId + 1 }),
+  newFold: () => set({ seed: randomSeedWord(), phase: "playing", pendingBuy: null }),
+  die: () => set({ phase: "dead", pendingBuy: null }),
+  revive: () => set({ phase: "playing", runId: get().runId + 1, pendingBuy: null }),
   setHud: (h) => set((s) => ({ hud: { ...s.hud, ...h } })),
+  buy: (kind) => {
+    if (get().phase === "playing") set({ pendingBuy: kind });
+  },
+  clearBuy: () => set({ pendingBuy: null }),
 }));

@@ -9,6 +9,8 @@ import {
   spawnMobAt,
   stepMobs,
   throwRock,
+  tryBuy,
+  type BuyKind,
   type MobKind,
 } from "./mobs";
 import { BASE_EH, BASE_TH, BASE_TW, createPaint, rotateXZ } from "./paint";
@@ -42,13 +44,19 @@ type Probe = {
     fleeT: number;
     fuseT: number;
   }[];
-  spawnMobAt?: (kind: MobKind, x: number, z: number) => void;
+  spawnMobAt?: (kind: MobKind, x: number, z: number) => number;
   throwRock?: () => boolean;
   getRocks?: () => { x: number; y: number; z: number }[];
   getIdle?: () => { t: number; wave: number };
   setIdle?: (t: number, wave?: number) => void;
   getScarCount?: () => number;
   getSex?: () => WandererSex;
+  getCoins?: () => number;
+  getLevels?: () => { speed: number; atk: number };
+  buy?: (kind: BuyKind) => boolean;
+  spawnCoin?: (x: number, z: number, value: number) => void;
+  setHp?: (n: number) => void;
+  setIFrame?: (t: number) => void;
 };
 
 declare global {
@@ -147,6 +155,7 @@ export function IsoView({ seed, sex }: { seed: string; sex: WandererSex }) {
         field.mobs
           .filter((m) => m.alive)
           .map((m) => ({
+            id: m.id,
             kind: m.kind,
             x: m.x,
             z: m.z,
@@ -155,9 +164,7 @@ export function IsoView({ seed, sex }: { seed: string; sex: WandererSex }) {
             fleeT: m.fleeT,
             fuseT: m.fuseT,
           })),
-      spawnMobAt: (kind, x, z) => {
-        spawnMobAt(field, world, kind, x, z);
-      },
+      spawnMobAt: (kind, x, z) => spawnMobAt(field, world, kind, x, z).id,
       throwRock: () => throwRock(world, field, player),
       getRocks: () => field.rocks.map((r) => ({ x: r.x, y: r.y, z: r.z })),
       getIdle: () => ({ t: field.idleT, wave: field.idleWave }),
@@ -167,6 +174,27 @@ export function IsoView({ seed, sex }: { seed: string; sex: WandererSex }) {
       },
       getScarCount: () => world.scars.size,
       getSex: () => player.sex,
+      getCoins: () => player.coins,
+      getLevels: () => ({ speed: player.speedLv, atk: player.atkLv }),
+      buy: (kind) => tryBuy(player, field, kind),
+      spawnCoin: (x, z, value) => {
+        field.coins.push({
+          x,
+          y: player.y + 0.3,
+          z,
+          vx: 0,
+          vz: 0,
+          value,
+          age: 0,
+          alive: true,
+        });
+      },
+      setHp: (n) => {
+        player.hp = Math.max(0, Math.min(player.maxHp, n));
+      },
+      setIFrame: (t) => {
+        player.iFrame = t;
+      },
     };
     window.__controlsTest = probe;
     window.__ridgefold = probe;
@@ -304,7 +332,7 @@ export function IsoView({ seed, sex }: { seed: string; sex: WandererSex }) {
 
       type Item = {
         d: number;
-        kind: "tile" | "prop" | "player" | "mob" | "rock";
+        kind: "tile" | "prop" | "player" | "mob" | "rock" | "coin";
         i: number;
         x: number;
         z: number;
@@ -387,7 +415,22 @@ export function IsoView({ seed, sex }: { seed: string; sex: WandererSex }) {
           water: false,
         });
       }
-      const isActor = (it: Item) => it.kind === "player" || it.kind === "mob" || it.kind === "rock";
+      const liveCoins = field.coins.filter((c) => c.alive);
+      for (let i = 0; i < liveCoins.length; i++) {
+        const c = liveCoins[i]!;
+        items.push({
+          d: depth(c.x, c.z) + 0.03,
+          kind: "coin",
+          i,
+          x: c.x,
+          z: c.z,
+          h: c.y / HEIGHT_UNIT,
+          biome: 0,
+          water: false,
+        });
+      }
+      const isActor = (it: Item) =>
+        it.kind === "player" || it.kind === "mob" || it.kind === "rock" || it.kind === "coin";
       const hidesActor = (it: Item, subject: Item) => {
         if (it.kind === "prop") return it.d > subject.d;
         if (isActor(it)) return false;
@@ -412,6 +455,7 @@ export function IsoView({ seed, sex }: { seed: string; sex: WandererSex }) {
         else if (it.kind === "prop") paint.drawProp(props[it.i]!);
         else if (it.kind === "mob") paint.drawMob(liveMobs[it.i]!);
         else if (it.kind === "rock") paint.drawRock(liveRocks[it.i]!);
+        else if (it.kind === "coin") paint.drawCoin(liveCoins[it.i]!, t);
         else paint.drawExplorer(player, t);
       }
       for (let i = sparks.length - 1; i >= 0; i--) {
@@ -451,6 +495,11 @@ export function IsoView({ seed, sex }: { seed: string; sex: WandererSex }) {
           sample.worldX = mapped.worldX;
           sample.worldZ = mapped.worldZ;
           stepPlayer(world, player, sample, FIXED_DT);
+          const pending = useGame.getState().pendingBuy;
+          if (pending) {
+            if (tryBuy(player, field, pending)) audio.buy();
+            useGame.getState().clearBuy();
+          }
           if (sample.throwPressed && throwRock(world, field, player)) {
             audio.throw();
           }
@@ -459,10 +508,15 @@ export function IsoView({ seed, sex }: { seed: string; sex: WandererSex }) {
             audio.hurt();
             trauma = Math.min(1, trauma + 0.48);
           }
-          if (ev.scares > 0) {
-            audio.scare();
-            trauma = Math.min(1, trauma + 0.22);
+          if (ev.hits > 0) {
+            audio.hit();
+            trauma = Math.min(1, trauma + 0.12);
           }
+          if (ev.kills > 0) {
+            audio.kill();
+            trauma = Math.min(1, trauma + 0.28);
+          }
+          if (ev.coins > 0) audio.coin();
           if (ev.explosions.length > 0) {
             audio.explode();
             trauma = Math.min(1, trauma + 0.78);
@@ -530,6 +584,9 @@ export function IsoView({ seed, sex }: { seed: string; sex: WandererSex }) {
           onWater: player.onWater,
           hp: player.hp,
           maxHp: player.maxHp,
+          coins: player.coins,
+          speedLv: player.speedLv,
+          atkLv: player.atkLv,
         });
       }
 
