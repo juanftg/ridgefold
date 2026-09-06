@@ -1,8 +1,17 @@
 import { useEffect, useRef } from "react";
 import { createAudio } from "./audio";
-import { BIOME_SIDE, BIOME_TOP, CAM_ROT_SPEED, FIXED_DT, HEIGHT_UNIT } from "./constants";
+import { CAM_ROT_SPEED, CHUNK_SIZE, FIXED_DT, HEIGHT_UNIT } from "./constants";
 import { createInput, screenToWorld } from "./input";
-import { playerSpeed, spawnPlayer, stepPlayer, type Player } from "./sim";
+import {
+  createMobField,
+  ensureMobsAround,
+  pruneMobs,
+  spawnMobAt,
+  stepMobs,
+  type MobKind,
+} from "./mobs";
+import { BASE_EH, BASE_TH, BASE_TW, createPaint, rotateXZ } from "./paint";
+import { playerSpeed, spawnPlayer, stepPlayer } from "./sim";
 import { useGame } from "./store";
 import {
   cellAt,
@@ -10,7 +19,6 @@ import {
   generateWorld,
   pruneChunks,
   scatterPropsNear,
-  type Prop,
   type World,
 } from "./terrain";
 
@@ -23,6 +31,9 @@ type Probe = {
   getWalkPhase?: () => number;
   getZoom?: () => number;
   getCam?: () => { x: number; z: number; elev: number; sx: number; sy: number };
+  getHp?: () => number;
+  getMobs?: () => { kind: MobKind; x: number; z: number; hp: number; aggressive: boolean }[];
+  spawnMobAt?: (kind: MobKind, x: number, z: number) => void;
 };
 
 declare global {
@@ -30,50 +41,6 @@ declare global {
     __controlsTest?: Probe;
     __ridgefold?: Probe;
   }
-}
-
-const BASE_TW = 28;
-const BASE_TH = 14;
-const BASE_EH = 17;
-
-function rotateXZ(x: number, z: number, a: number): [number, number] {
-  const c = Math.cos(a);
-  const s = Math.sin(a);
-  return [x * c - z * s, x * s + z * c];
-}
-
-function shade(hex: string, amt: number) {
-  const n = parseInt(hex.slice(1), 16);
-  const r = Math.max(0, Math.min(255, ((n >> 16) & 255) + amt));
-  const g = Math.max(0, Math.min(255, ((n >> 8) & 255) + amt));
-  const b = Math.max(0, Math.min(255, (n & 255) + amt));
-  return `rgb(${r},${g},${b})`;
-}
-
-function quad(ctx: CanvasRenderingContext2D, pts: [number, number][], color: string) {
-  ctx.beginPath();
-  ctx.moveTo(pts[0]![0], pts[0]![1]);
-  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i]![0], pts[i]![1]);
-  ctx.closePath();
-  ctx.fillStyle = color;
-  ctx.fill();
-}
-
-function roundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
 }
 
 export function IsoView({ seed }: { seed: string }) {
@@ -87,10 +54,12 @@ export function IsoView({ seed }: { seed: string }) {
 
     const world: World = generateWorld(seed);
     const player = spawnPlayer(world);
+    const field = createMobField();
     const input = createInput();
     const audio = createAudio();
     const setHud = useGame.getState().setHud;
     const pause = useGame.getState().pause;
+    const die = useGame.getState().die;
 
     (window as unknown as {
       __ridgeInput?: {
@@ -118,7 +87,6 @@ export function IsoView({ seed }: { seed: string }) {
     let dragId: number | null = null;
     let dragX = 0;
     let camInited = false;
-    let lastFacing = 0;
     let camWX = player.x;
     let camWZ = player.z;
     let camElev = player.y / HEIGHT_UNIT;
@@ -127,6 +95,7 @@ export function IsoView({ seed }: { seed: string }) {
     let camElevV = 0;
     let lookVX = 0;
     let lookVZ = 0;
+    let trauma = 0;
 
     const springDamp = (
       pos: number,
@@ -155,6 +124,14 @@ export function IsoView({ seed }: { seed: string }) {
       getWalkPhase: () => player.walkPhase,
       getZoom: () => zoom,
       getCam: () => ({ x: camWX, z: camWZ, elev: camElev, sx: camX, sy: camY }),
+      getHp: () => player.hp,
+      getMobs: () =>
+        field.mobs
+          .filter((m) => m.alive)
+          .map((m) => ({ kind: m.kind, x: m.x, z: m.z, hp: m.hp, aggressive: m.aggressive })),
+      spawnMobAt: (kind, x, z) => {
+        spawnMobAt(field, world, kind, x, z);
+      },
     };
     window.__controlsTest = probe;
     window.__ridgefold = probe;
@@ -172,200 +149,13 @@ export function IsoView({ seed }: { seed: string }) {
       return rx + rz;
     };
 
-    const drawBlock = (x: number, z: number, h: number, biome: number, water: boolean, t: number) => {
-      const elev = water
-        ? 0.34 + Math.sin(t * 1.6 + x * 1.7 + z * 1.15) * 0.05
-        : Math.max(0.55, h);
-      const gx = Math.floor(x);
-      const gz = Math.floor(z);
-      const neighborElev = (nx: number, nz: number) => {
-        const c = cellAt(world, nx, nz);
-        return c.water ? 0.28 : Math.max(0.55, c.h);
-      };
-      const half = 0.51;
-      const x0 = x - half;
-      const x1 = x + half;
-      const z0 = z - half;
-      const z1 = z + half;
-      const t00 = project(x0, z0, elev);
-      const t10 = project(x1, z0, elev);
-      const t11 = project(x1, z1, elev);
-      const t01 = project(x0, z1, elev);
-      const side = BIOME_SIDE[biome] ?? "#5a4a38";
-      const top = BIOME_TOP[biome] ?? "#6e8f5c";
-      const face = (
-        ax: number,
-        az: number,
-        bx: number,
-        bz: number,
-        bot: number,
-        color: string,
-      ) => {
-        if (bot >= elev - 0.02) return;
-        const p0 = project(ax, az, elev);
-        const p1 = project(bx, bz, elev);
-        const p2 = project(bx, bz, bot);
-        const p3 = project(ax, az, bot);
-        quad(ctx, [p0, p1, p2, p3], color);
-      };
-      const visPosX = depth(1, 0) > depth(0, 0);
-      const visPosZ = depth(0, 1) > depth(0, 0);
-      if (visPosX) face(x1, z0, x1, z1, neighborElev(gx + 1, gz), shade(side, water ? -8 : -18));
-      else face(x0, z0, x0, z1, neighborElev(gx - 1, gz), shade(side, water ? -4 : -8));
-      if (visPosZ) face(x0, z1, x1, z1, neighborElev(gx, gz + 1), shade(side, water ? 16 : 10));
-      else face(x0, z0, x1, z0, neighborElev(gx, gz - 1), shade(side, water ? 8 : 4));
-      quad(ctx, [t00, t10, t11, t01], water ? shade(top, Math.sin(t * 2 + x + z) * 18) : top);
-    };
-
-    const drawProp = (p: Prop) => {
-      const [sx, sy] = project(p.x, p.z, p.y / HEIGHT_UNIT);
-      const k = zoom;
-      if (p.kind === "pine") {
-        ctx.fillStyle = "#2f4a38";
-        ctx.beginPath();
-        ctx.moveTo(sx, sy - 28 * p.scale * k);
-        ctx.lineTo(sx + 9 * p.scale * k, sy - 4 * k);
-        ctx.lineTo(sx - 9 * p.scale * k, sy - 4 * k);
-        ctx.closePath();
-        ctx.fill();
-        ctx.fillStyle = "#3d5c45";
-        ctx.beginPath();
-        ctx.moveTo(sx, sy - 20 * p.scale * k);
-        ctx.lineTo(sx + 11 * p.scale * k, sy);
-        ctx.lineTo(sx - 11 * p.scale * k, sy);
-        ctx.closePath();
-        ctx.fill();
-      } else {
-        ctx.fillStyle = "#7a746c";
-        ctx.beginPath();
-        ctx.ellipse(sx, sy - 4 * k, 7 * p.scale * 4 * k, 5 * p.scale * 4 * k, 0.3, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    };
-
-    const drawExplorer = (p: Player) => {
-      const elev = p.y / HEIGHT_UNIT;
-      const [sx, sy] = project(p.x, p.z, elev);
-      const k = zoom * 1.52;
-      const speed = Math.hypot(p.vx, p.vz);
-      const walking = p.grounded && speed > 0.28;
-      const ph = p.walkPhase;
-      const swing = walking ? Math.sin(ph) : 0;
-      const bob = walking ? Math.abs(Math.sin(ph)) * 5.1 : p.grounded ? 0 : 3.4;
-      const [ax, ay] = project(p.x + p.vx * 0.14, p.z + p.vz * 0.14, elev);
-      const sdx = ax - sx;
-      const sdy = ay - sy;
-      if (walking && sdx * sdx + sdy * sdy > 0.18) {
-        lastFacing = Math.abs(sdx) >= Math.abs(sdy) ? (sdx >= 0 ? 1 : 3) : sdy >= 0 ? 0 : 2;
-      }
-      const facing = lastFacing;
-      const flip = facing === 3 ? -1 : 1;
-      const sideOn = facing === 1 || facing === 3;
-      const rear = facing === 2;
-      const s = p.squash;
-
-      ctx.fillStyle = p.onWater ? "rgba(36, 88, 108, 0.4)" : "rgba(16, 20, 18, 0.34)";
-      ctx.beginPath();
-      ctx.ellipse(sx, sy + 6 * k, (11 + (walking ? 3.4 : 0)) * k, 5.4 * k, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.save();
-      ctx.translate(sx, sy - bob * k);
-      ctx.scale((flip * k) / Math.sqrt(s), k * s);
-
-      const aL = walking ? -swing * (sideOn ? 0.78 : 0.48) : 0.1;
-      const aR = walking ? swing * (sideOn ? 0.78 : 0.48) : 0.1;
-      const lL = walking ? -swing * (sideOn ? 0.7 : 0.42) : 0.06;
-      const lR = walking ? swing * (sideOn ? 0.7 : 0.42) : 0.06;
-
-      const arm = (shX: number, shY: number, a: number, color: string) => {
-        ctx.save();
-        ctx.translate(shX, shY);
-        ctx.rotate(a);
-        ctx.fillStyle = color;
-        roundRect(ctx, -2.1, -1, 4.2, 12.2, 1.9);
-        ctx.fill();
-        ctx.fillStyle = "#e8dcc8";
-        ctx.beginPath();
-        ctx.ellipse(0.2, 12.4, 1.9, 1.9, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      };
-
-      const leg = (hipX: number, hipY: number, a: number, color: string, lead: boolean) => {
-        const thigh = 8.6;
-        const shin = 7.8;
-        const knee = walking
-          ? 0.28 + Math.max(0, -Math.sin(ph + (lead ? 0 : Math.PI))) * 0.55
-          : 0.1;
-        ctx.save();
-        ctx.translate(hipX, hipY);
-        ctx.rotate(a);
-        ctx.fillStyle = color;
-        roundRect(ctx, -2.7, -1, 5.4, thigh, 2.3);
-        ctx.fill();
-        ctx.translate(0, thigh - 0.5);
-        ctx.rotate(knee);
-        roundRect(ctx, -2.3, -0.5, 4.6, shin, 2);
-        ctx.fill();
-        ctx.fillStyle = "#151a17";
-        ctx.beginPath();
-        ctx.ellipse(1.4, shin + 0.2, 3.5, 1.75, 0.2, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      };
-
-      if (rear) {
-        arm(5.6, -23, aL, "#2f3a34");
-        leg(-3.4, -10.4, lL, "#1c211e", false);
-        ctx.fillStyle = "#3a433e";
-        roundRect(ctx, -9, -25.4, 18, 17, 4.8);
-        ctx.fill();
-        ctx.fillStyle = "#2a322e";
-        roundRect(ctx, -6.4, -23.4, 12.8, 10.4, 3);
-        ctx.fill();
-        leg(3.6, -10.4, lR, "#262c28", true);
-        arm(-6, -23, aR, "#3d4540");
-        ctx.fillStyle = "#e8dcc8";
-        ctx.beginPath();
-        ctx.arc(0, -30.8, 6.7, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#2c3330";
-        ctx.beginPath();
-        ctx.ellipse(0, -34, 7, 4.4, 0, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        arm(sideOn ? 1.6 : 6.4, -23, aL, "#2f3a34");
-        leg(sideOn ? -1.4 : -3.8, -10.4, lL, "#1c211e", false);
-        ctx.fillStyle = "#3d4540";
-        roundRect(ctx, sideOn ? -6.6 : -9, -25.4, sideOn ? 14 : 18, 17.2, 4.8);
-        ctx.fill();
-        ctx.fillStyle = "#4f5b54";
-        roundRect(ctx, sideOn ? -4.4 : -6.6, -21.8, sideOn ? 8.4 : 10, 11.2, 2.7);
-        ctx.fill();
-        leg(sideOn ? 1.8 : 3.8, -10.4, lR, "#2a302c", true);
-        arm(sideOn ? -1.4 : -6.6, -23, aR, "#3d4540");
-        ctx.fillStyle = "#e8dcc8";
-        ctx.beginPath();
-        ctx.arc(sideOn ? 1.4 : 0.4, -30.8, 6.7, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#2c3330";
-        ctx.beginPath();
-        ctx.ellipse(sideOn ? 1.6 : 0.3, -34, 6.9, 4.4, sideOn ? 0.22 : 0.1, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#1a1e1c";
-        ctx.beginPath();
-        ctx.arc(sideOn ? 3.8 : 2.4, -30, 1.25, 0, Math.PI * 2);
-        ctx.fill();
-        if (!sideOn) {
-          ctx.beginPath();
-          ctx.arc(-1.8, -30, 1.25, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-
-      ctx.restore();
-    };
+    const paint = createPaint({
+      ctx,
+      world,
+      project,
+      depth,
+      getZoom: () => zoom,
+    });
 
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -408,9 +198,18 @@ export function IsoView({ seed }: { seed: string }) {
     canvas.addEventListener("pointercancel", onPointerUp);
     canvas.addEventListener("contextmenu", onContext);
 
+    const viewRadius = (cssW: number, cssH: number) => {
+      const tw = BASE_TW * zoom;
+      const th = BASE_TH * zoom;
+      const spanX = cssW * 0.5 / Math.max(8, tw);
+      const spanY = cssH * 0.5 / Math.max(8, th) + 10;
+      return Math.ceil(Math.max(spanX, spanY) * 1.32) + 5;
+    };
+
     const draw = (cssW: number, cssH: number, t: number, dt: number) => {
-      const view = Math.ceil(18 / zoom) + 2;
-      ensureAround(world, player.x, player.z, view + 6);
+      const view = viewRadius(cssW, cssH);
+      ensureAround(world, player.x, player.z, view + 8);
+      ensureMobsAround(world, field, player.x, player.z, view + 4);
       if (!camInited) {
         camWX = player.x;
         camWZ = player.z;
@@ -450,17 +249,27 @@ export function IsoView({ seed }: { seed: string }) {
       ctx.fillStyle = sky;
       ctx.fillRect(0, 0, cssW, cssH);
 
+      trauma = Math.max(0, trauma - dt * 2.6);
+      const shake = trauma * trauma;
+      const ox = (Math.sin(t * 47.2) * 8 + Math.sin(t * 23.1) * 3) * shake;
+      const oy = Math.cos(t * 41.4) * 6 * shake;
+
       ctx.save();
-      ctx.translate(cssW * 0.5 - camX, cssH * 0.5 - camY);
+      ctx.translate(cssW * 0.5 - camX + ox, cssH * 0.5 - camY + oy);
 
       const gx0 = Math.floor(player.x - view);
       const gx1 = Math.ceil(player.x + view);
       const gz0 = Math.floor(player.z - view);
       const gz1 = Math.ceil(player.z + view);
+      const tw = BASE_TW * zoom;
+      const th = BASE_TH * zoom;
+      const maxSx = cssW * 0.5 + tw * 3;
+      const maxSyDown = cssH * 0.5 + th * 5;
+      const maxSyUp = cssH * 0.5 + th * 10;
 
       type Item = {
         d: number;
-        kind: "tile" | "prop" | "player";
+        kind: "tile" | "prop" | "player" | "mob";
         i: number;
         x: number;
         z: number;
@@ -485,6 +294,10 @@ export function IsoView({ seed }: { seed: string }) {
           const cell = cellAt(world, gx, gz);
           const x = gx + 0.5;
           const z = gz + 0.5;
+          const [sx, sy] = project(x, z, cell.water ? 0.34 : cell.h);
+          if (Math.abs(sx - camX) > maxSx) continue;
+          if (sy - camY > maxSyDown) continue;
+          if (camY - sy > maxSyUp) continue;
           items.push({
             d: depth(x, z),
             kind: "tile",
@@ -511,29 +324,52 @@ export function IsoView({ seed }: { seed: string }) {
           water: false,
         });
       }
-      const hidesActor = (it: Item) => {
-        if (it.kind === "prop") return it.d > actor.d;
-        if (it.d <= actor.d + 0.08) return false;
+      const liveMobs = field.mobs.filter((m) => m.alive || m.hurtT > 0);
+      for (let i = 0; i < liveMobs.length; i++) {
+        const m = liveMobs[i]!;
+        items.push({
+          d: depth(m.x, m.z) + 0.02,
+          kind: "mob",
+          i,
+          x: m.x,
+          z: m.z,
+          h: m.y / HEIGHT_UNIT,
+          biome: 0,
+          water: false,
+        });
+      }
+      const isActor = (it: Item) => it.kind === "player" || it.kind === "mob";
+      const hidesActor = (it: Item, subject: Item) => {
+        if (it.kind === "prop") return it.d > subject.d;
+        if (isActor(it)) return false;
+        if (it.d <= subject.d + 0.08) return false;
         if (it.water) return false;
-        return it.h > actor.h + 1.05;
+        return it.h > subject.h + 1.05;
       };
       items.sort((a, b) => {
-        const aP = a.kind === "player";
-        const bP = b.kind === "player";
-        if (aP !== bP) {
-          const other = aP ? b : a;
-          if (hidesActor(other)) return aP ? -1 : 1;
-          return aP ? 1 : -1;
+        const aA = isActor(a);
+        const bA = isActor(b);
+        if (aA !== bA) {
+          const subject = aA ? a : b;
+          const other = aA ? b : a;
+          if (hidesActor(other, subject)) return aA ? -1 : 1;
+          return aA ? 1 : -1;
         }
         return a.d - b.d || a.h - b.h;
       });
 
       for (const it of items) {
-        if (it.kind === "tile") drawBlock(it.x, it.z, it.h, it.biome, it.water, t);
-        else if (it.kind === "prop") drawProp(props[it.i]!);
-        else drawExplorer(player);
+        if (it.kind === "tile") paint.drawBlock(it.x, it.z, it.h, it.biome, it.water, t);
+        else if (it.kind === "prop") paint.drawProp(props[it.i]!);
+        else if (it.kind === "mob") paint.drawMob(liveMobs[it.i]!);
+        else paint.drawExplorer(player);
       }
       ctx.restore();
+
+      if (player.hurtT > 0) {
+        ctx.fillStyle = `rgba(140, 36, 28, ${Math.min(0.26, player.hurtT * 0.7)})`;
+        ctx.fillRect(0, 0, cssW, cssH);
+      }
     };
 
     const loop = (now: number) => {
@@ -556,6 +392,19 @@ export function IsoView({ seed }: { seed: string }) {
           sample.worldX = mapped.worldX;
           sample.worldZ = mapped.worldZ;
           stepPlayer(world, player, sample, FIXED_DT);
+          const ev = stepMobs(world, field, player, FIXED_DT);
+          if (ev.playerDamage > 0) {
+            audio.hurt();
+            trauma = Math.min(1, trauma + 0.48);
+          }
+          if (ev.stomps > 0) {
+            audio.stomp();
+            trauma = Math.min(1, trauma + 0.28);
+          }
+          if (player.hp <= 0) {
+            die();
+            audio.fall();
+          }
           if (player.hops > hops) audio.jump();
           if (player.grounded && !wasGrounded && player.landPulse > 0) audio.land();
           hops = player.hops;
@@ -563,7 +412,13 @@ export function IsoView({ seed }: { seed: string }) {
           acc -= FIXED_DT;
           steps += 1;
         }
-        if (steps > 0) pruneChunks(world, player.x, player.z, 5);
+        const cssW0 = canvas.clientWidth || window.innerWidth;
+        const cssH0 = canvas.clientHeight || window.innerHeight;
+        const keep = Math.ceil(viewRadius(cssW0, cssH0) / CHUNK_SIZE) + 2;
+        if (steps > 0) {
+          pruneChunks(world, player.x, player.z, keep);
+          pruneMobs(field, player.x, player.z, keep);
+        }
       } else {
         acc = 0;
       }
@@ -578,6 +433,8 @@ export function IsoView({ seed }: { seed: string }) {
           hint: player.hintT > 0 ? player.hint : "none",
           grounded: player.grounded,
           onWater: player.onWater,
+          hp: player.hp,
+          maxHp: player.maxHp,
         });
       }
 
