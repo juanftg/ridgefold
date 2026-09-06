@@ -108,15 +108,6 @@ export function stepPlayer(world: World, p: Player, input: SampledInput, dt = FI
   p.vx = wishX;
   p.vz = wishZ;
 
-  if (wishMag > 0.08) {
-    const targetYaw = Math.atan2(-p.vx, -p.vz);
-    let dyaw = targetYaw - p.yaw;
-    while (dyaw > Math.PI) dyaw -= Math.PI * 2;
-    while (dyaw < -Math.PI) dyaw += Math.PI * 2;
-    p.yaw += dyaw * Math.min(1, dt * 10);
-    p.walkPhase += dt * 9.5 * wishMag;
-  }
-
   const canJump = p.grounded || p.coyote > 0;
   if (p.jumpBuf > 0 && canJump) {
     p.vy = JUMP_SPEED;
@@ -145,8 +136,23 @@ export function stepPlayer(world: World, p: Player, input: SampledInput, dt = FI
 
   const nx = p.x + p.vx * dt;
   const nz = p.z + p.vz * dt;
+  const ox = p.x;
+  const oz = p.z;
   if (!tryAxis(nx, nz)) {
     if (!tryAxis(nx, p.z)) tryAxis(p.x, nz);
+  }
+
+  const moved = Math.hypot(p.x - ox, p.z - oz);
+  if (moved > 0.0005) {
+    const targetYaw = Math.atan2(-(p.x - ox), -(p.z - oz));
+    let dyaw = targetYaw - p.yaw;
+    while (dyaw > Math.PI) dyaw -= Math.PI * 2;
+    while (dyaw < -Math.PI) dyaw += Math.PI * 2;
+    p.yaw += dyaw * Math.min(1, dt * 12);
+    if (p.grounded) p.walkPhase += moved * (p.onWater ? 3.6 : 4.8);
+  } else if (p.grounded) {
+    const rest = Math.round(p.walkPhase / Math.PI) * Math.PI;
+    p.walkPhase += (rest - p.walkPhase) * Math.min(1, dt * 8);
   }
 
   p.y += p.vy * dt;

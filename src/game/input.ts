@@ -24,6 +24,15 @@ function rotateXZ(x: number, z: number, a: number): [number, number] {
   return [x * c - z * s, x * s + z * c];
 }
 
+export function screenToWorld(mx: number, my: number, camYaw: number): {
+  worldX: number;
+  worldZ: number;
+} {
+  const [rx, rz] = rotateXZ(ISO_RIGHT.x, ISO_RIGHT.z, -camYaw);
+  const [ux, uz] = rotateXZ(ISO_UP.x, ISO_UP.z, -camYaw);
+  return { worldX: rx * mx + ux * my, worldZ: rz * mx + uz * my };
+}
+
 const GAME_CODES = new Set([
   "KeyW",
   "KeyA",
@@ -147,10 +156,7 @@ export function createInput() {
     const pausePressed = pauseHeld && !prevPause;
     prevPause = pauseHeld;
 
-    const [rx, rz] = rotateXZ(ISO_RIGHT.x, ISO_RIGHT.z, camYaw);
-    const [ux, uz] = rotateXZ(ISO_UP.x, ISO_UP.z, camYaw);
-    const worldX = rx * mx + ux * my;
-    const worldZ = rz * mx + uz * my;
+    const moved = screenToWorld(mx, my, camYaw);
 
     return {
       moveX: mx,
@@ -159,8 +165,8 @@ export function createInput() {
       jumpPressed,
       pausePressed,
       yawRate,
-      worldX,
-      worldZ,
+      worldX: moved.worldX,
+      worldZ: moved.worldZ,
     };
   }
 
