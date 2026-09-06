@@ -13,7 +13,7 @@ import {
 } from "./mobs";
 import { BASE_EH, BASE_TH, BASE_TW, createPaint, rotateXZ } from "./paint";
 import { playerSpeed, spawnPlayer, stepPlayer } from "./sim";
-import { useGame } from "./store";
+import { useGame, type WandererSex } from "./store";
 import {
   cellAt,
   ensureAround,
@@ -33,10 +33,22 @@ type Probe = {
   getZoom?: () => number;
   getCam?: () => { x: number; z: number; elev: number; sx: number; sy: number };
   getHp?: () => number;
-  getMobs?: () => { kind: MobKind; x: number; z: number; hp: number; aggressive: boolean; fleeT: number }[];
+  getMobs?: () => {
+    kind: MobKind;
+    x: number;
+    z: number;
+    hp: number;
+    aggressive: boolean;
+    fleeT: number;
+    fuseT: number;
+  }[];
   spawnMobAt?: (kind: MobKind, x: number, z: number) => void;
   throwRock?: () => boolean;
   getRocks?: () => { x: number; y: number; z: number }[];
+  getIdle?: () => { t: number; wave: number };
+  setIdle?: (t: number, wave?: number) => void;
+  getScarCount?: () => number;
+  getSex?: () => WandererSex;
 };
 
 declare global {
@@ -46,7 +58,7 @@ declare global {
   }
 }
 
-export function IsoView({ seed }: { seed: string }) {
+export function IsoView({ seed, sex }: { seed: string; sex: WandererSex }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -56,7 +68,7 @@ export function IsoView({ seed }: { seed: string }) {
     if (!ctx) return;
 
     const world: World = generateWorld(seed);
-    const player = spawnPlayer(world);
+    const player = spawnPlayer(world, sex);
     const field = createMobField();
     const input = createInput();
     const audio = createAudio();
@@ -101,6 +113,7 @@ export function IsoView({ seed }: { seed: string }) {
     let lookVX = 0;
     let lookVZ = 0;
     let trauma = 0;
+    const sparks: { x: number; z: number; y: number; vx: number; vz: number; vy: number; life: number }[] = [];
 
     const springDamp = (
       pos: number,
@@ -140,12 +153,20 @@ export function IsoView({ seed }: { seed: string }) {
             hp: m.hp,
             aggressive: m.aggressive,
             fleeT: m.fleeT,
+            fuseT: m.fuseT,
           })),
       spawnMobAt: (kind, x, z) => {
         spawnMobAt(field, world, kind, x, z);
       },
       throwRock: () => throwRock(world, field, player),
       getRocks: () => field.rocks.map((r) => ({ x: r.x, y: r.y, z: r.z })),
+      getIdle: () => ({ t: field.idleT, wave: field.idleWave }),
+      setIdle: (t, wave = 0) => {
+        field.idleT = t;
+        field.idleWave = wave;
+      },
+      getScarCount: () => world.scars.size,
+      getSex: () => player.sex,
     };
     window.__controlsTest = probe;
     window.__ridgefold = probe;
@@ -391,12 +412,21 @@ export function IsoView({ seed }: { seed: string }) {
         else if (it.kind === "prop") paint.drawProp(props[it.i]!);
         else if (it.kind === "mob") paint.drawMob(liveMobs[it.i]!);
         else if (it.kind === "rock") paint.drawRock(liveRocks[it.i]!);
-        else paint.drawExplorer(player);
+        else paint.drawExplorer(player, t);
+      }
+      for (let i = sparks.length - 1; i >= 0; i--) {
+        const s = sparks[i]!;
+        if (s.life > 0) paint.drawSpark(s.x, s.z, s.y, s.life);
       }
       ctx.restore();
 
       if (player.hurtT > 0) {
         ctx.fillStyle = `rgba(140, 36, 28, ${Math.min(0.26, player.hurtT * 0.7)})`;
+        ctx.fillRect(0, 0, cssW, cssH);
+      }
+      if (field.idleT > 1.2) {
+        const a = Math.min(0.2, (field.idleT - 1.2) * 0.05);
+        ctx.fillStyle = `rgba(48, 16, 14, ${a})`;
         ctx.fillRect(0, 0, cssW, cssH);
       }
     };
@@ -433,6 +463,34 @@ export function IsoView({ seed }: { seed: string }) {
             audio.scare();
             trauma = Math.min(1, trauma + 0.22);
           }
+          if (ev.explosions.length > 0) {
+            audio.explode();
+            trauma = Math.min(1, trauma + 0.78);
+            for (const boom of ev.explosions) {
+              for (let i = 0; i < 16; i++) {
+                const a = (i / 16) * Math.PI * 2 + Math.random() * 0.4;
+                const sp = 2.1 + Math.random() * 3.6;
+                sparks.push({
+                  x: boom.x,
+                  z: boom.z,
+                  y: 0.55,
+                  vx: Math.cos(a) * sp,
+                  vz: Math.sin(a) * sp,
+                  vy: 3.1 + Math.random() * 4.4,
+                  life: 0.5 + Math.random() * 0.4,
+                });
+              }
+            }
+          }
+          for (let i = sparks.length - 1; i >= 0; i--) {
+            const s = sparks[i]!;
+            s.life -= FIXED_DT;
+            s.x += s.vx * FIXED_DT;
+            s.z += s.vz * FIXED_DT;
+            s.y += s.vy * FIXED_DT;
+            s.vy -= 13 * FIXED_DT;
+            if (s.life <= 0 || s.y < -0.4) sparks.splice(i, 1);
+          }
           if (player.hp <= 0) {
             die();
             audio.fall();
@@ -462,7 +520,12 @@ export function IsoView({ seed }: { seed: string }) {
           seed: world.seed,
           elevation: Math.round((player.y / HEIGHT_UNIT) * 10) / 10,
           hops: player.hops,
-          hint: player.hintT > 0 ? player.hint : "none",
+          hint:
+            player.hintT > 0 && player.hint === "ledge"
+              ? "ledge"
+              : field.idleT > 1.25
+                ? "still"
+                : "none",
           grounded: player.grounded,
           onWater: player.onWater,
           hp: player.hp,
@@ -491,7 +554,7 @@ export function IsoView({ seed }: { seed: string }) {
       if (window.__controlsTest === probe) delete window.__controlsTest;
       if (window.__ridgefold === probe) delete window.__ridgefold;
     };
-  }, [seed]);
+  }, [seed, sex]);
 
   return (
     <canvas

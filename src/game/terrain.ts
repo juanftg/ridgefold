@@ -36,6 +36,7 @@ export type World = {
   seed: string;
   seedNum: number;
   chunks: Map<string, Chunk>;
+  scars: Map<string, Cell>;
   noises: Noises;
   spawnX: number;
   spawnZ: number;
@@ -240,12 +241,35 @@ export function ensureChunk(world: World, cx: number, cz: number): Chunk {
 }
 
 export function cellAt(world: World, gx: number, gz: number): Cell {
+  const scar = world.scars.get(`${gx}:${gz}`);
+  if (scar) return scar;
   const cx = Math.floor(gx / CHUNK_SIZE);
   const cz = Math.floor(gz / CHUNK_SIZE);
   const chunk = ensureChunk(world, cx, cz);
   const lx = gx - cx * CHUNK_SIZE;
   const lz = gz - cz * CHUNK_SIZE;
   return chunk.cells[lz * CHUNK_SIZE + lx]!;
+}
+
+export function deformCrater(world: World, x: number, z: number, radius = 2.3) {
+  const r = Math.ceil(radius + 0.35);
+  const [cgx, cgz] = worldToGrid(x, z);
+  for (let gz = cgz - r; gz <= cgz + r; gz++) {
+    for (let gx = cgx - r; gx <= cgx + r; gx++) {
+      const d = Math.hypot(gx + 0.5 - x, gz + 0.5 - z);
+      if (d > radius) continue;
+      const src = cellAt(world, gx, gz);
+      const drop = d < radius * 0.28 ? 3 : d < radius * 0.58 ? 2 : 1;
+      let h = Math.max(0, src.h - drop);
+      const water = h <= 0 || src.water;
+      if (water) h = 0;
+      world.scars.set(`${gx}:${gz}`, {
+        h,
+        water,
+        biome: water ? 4 : src.biome,
+      });
+    }
+  }
 }
 
 export function ensureAround(world: World, x: number, z: number, radius: number) {
@@ -326,6 +350,7 @@ export function generateWorld(seed: string): World {
     seed: s,
     seedNum,
     chunks: new Map(),
+    scars: new Map(),
     noises: makeNoises(seedNum),
     spawnX: 0.5,
     spawnZ: 0.5,
