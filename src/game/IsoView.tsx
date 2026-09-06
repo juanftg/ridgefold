@@ -474,18 +474,17 @@ export function IsoView({ seed }: { seed: string }) {
         biome: number;
         water: boolean;
       };
-      const items: Item[] = [
-        {
-          d: depth(player.x, player.z) + 0.01,
-          kind: "player",
-          i: -1,
-          x: player.x,
-          z: player.z,
-          h: player.y / HEIGHT_UNIT,
-          biome: 0,
-          water: false,
-        },
-      ];
+      const actor: Item = {
+        d: depth(player.x, player.z) + 0.01,
+        kind: "player",
+        i: -1,
+        x: player.x,
+        z: player.z,
+        h: player.y / HEIGHT_UNIT,
+        biome: 0,
+        water: false,
+      };
+      const items: Item[] = [actor];
 
       for (let gz = gz0; gz < gz1; gz++) {
         for (let gx = gx0; gx < gx1; gx++) {
@@ -513,12 +512,27 @@ export function IsoView({ seed }: { seed: string }) {
           i,
           x: p.x,
           z: p.z,
-          h: 0,
+          h: p.y / HEIGHT_UNIT,
           biome: 0,
           water: false,
         });
       }
-      items.sort((a, b) => a.d - b.d || a.h - b.h);
+      const hidesActor = (it: Item) => {
+        if (it.kind === "prop") return it.d > actor.d;
+        if (it.d <= actor.d + 0.08) return false;
+        if (it.water) return false;
+        return it.h > actor.h + 1.05;
+      };
+      items.sort((a, b) => {
+        const aP = a.kind === "player";
+        const bP = b.kind === "player";
+        if (aP !== bP) {
+          const other = aP ? b : a;
+          if (hidesActor(other)) return aP ? -1 : 1;
+          return aP ? 1 : -1;
+        }
+        return a.d - b.d || a.h - b.h;
+      });
 
       for (const it of items) {
         if (it.kind === "tile") drawBlock(it.x, it.z, it.h, it.biome, it.water, t);
