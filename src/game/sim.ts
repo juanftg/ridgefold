@@ -40,6 +40,7 @@ export type Player = {
   iFrame: number;
   hurtT: number;
   radius: number;
+  throwCd: number;
 };
 
 export function spawnPlayer(world: World): Player {
@@ -67,6 +68,7 @@ export function spawnPlayer(world: World): Player {
     iFrame: 0,
     hurtT: 0,
     radius: PLAYER_RADIUS,
+    throwCd: 0,
   };
 }
 
@@ -105,6 +107,7 @@ export function stepPlayer(world: World, p: Player, input: SampledInput, dt = FI
   p.landPulse = Math.max(0, p.landPulse - dt);
   p.iFrame = Math.max(0, p.iFrame - dt);
   p.hurtT = Math.max(0, p.hurtT - dt);
+  p.throwCd = Math.max(0, p.throwCd - dt);
   p.squash += (1 - p.squash) * Math.min(1, dt * 10);
 
   if (input.jumpPressed) p.jumpBuf = JUMP_BUFFER;
