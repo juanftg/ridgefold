@@ -223,10 +223,10 @@ export function throwRock(world: World, field: MobField, player: Player): boolea
     const dx = m.x - player.x;
     const dz = m.z - player.z;
     const d = Math.hypot(dx, dz);
-    if (d < 0.45 || d > 12) continue;
+    if (d < 0.15 || d > 12) continue;
     const nx = dx / d;
     const nz = dz / d;
-    if (nx * fx + nz * fz < 0.18) continue;
+    if (nx * fx + nz * fz < -0.15) continue;
     if (!aimed || d < aimD) {
       aimed = true;
       aimD = d;
@@ -335,7 +335,7 @@ export function stepMobs(world: World, field: MobField, player: Player, dt: numb
       if (!m.alive) continue;
       const dx = rock.x - m.x;
       const dz = rock.z - m.z;
-      const reach = m.radius + 0.4;
+      const reach = m.radius + 0.55;
       if (dx * dx + dz * dz > reach * reach) continue;
       if (rock.y < m.y - 0.12 || rock.y > m.y + 1.15) continue;
       scareMob(m, player);
