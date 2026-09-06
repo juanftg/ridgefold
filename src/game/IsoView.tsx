@@ -8,6 +8,7 @@ import {
   pruneMobs,
   spawnMobAt,
   stepMobs,
+  throwRock,
   type MobKind,
 } from "./mobs";
 import { BASE_EH, BASE_TH, BASE_TW, createPaint, rotateXZ } from "./paint";
@@ -32,8 +33,10 @@ type Probe = {
   getZoom?: () => number;
   getCam?: () => { x: number; z: number; elev: number; sx: number; sy: number };
   getHp?: () => number;
-  getMobs?: () => { kind: MobKind; x: number; z: number; hp: number; aggressive: boolean }[];
+  getMobs?: () => { kind: MobKind; x: number; z: number; hp: number; aggressive: boolean; fleeT: number }[];
   spawnMobAt?: (kind: MobKind, x: number, z: number) => void;
+  throwRock?: () => boolean;
+  getRocks?: () => { x: number; y: number; z: number }[];
 };
 
 declare global {
@@ -65,11 +68,13 @@ export function IsoView({ seed }: { seed: string }) {
       __ridgeInput?: {
         setTouchMove: typeof input.setTouchMove;
         setTouchJump: typeof input.setTouchJump;
+        setTouchThrow: typeof input.setTouchThrow;
         setTouchYaw: typeof input.setTouchYaw;
       };
     }).__ridgeInput = {
       setTouchMove: input.setTouchMove,
       setTouchJump: input.setTouchJump,
+      setTouchThrow: input.setTouchThrow,
       setTouchYaw: input.setTouchYaw,
     };
 
@@ -128,10 +133,19 @@ export function IsoView({ seed }: { seed: string }) {
       getMobs: () =>
         field.mobs
           .filter((m) => m.alive)
-          .map((m) => ({ kind: m.kind, x: m.x, z: m.z, hp: m.hp, aggressive: m.aggressive })),
+          .map((m) => ({
+            kind: m.kind,
+            x: m.x,
+            z: m.z,
+            hp: m.hp,
+            aggressive: m.aggressive,
+            fleeT: m.fleeT,
+          })),
       spawnMobAt: (kind, x, z) => {
         spawnMobAt(field, world, kind, x, z);
       },
+      throwRock: () => throwRock(world, field, player),
+      getRocks: () => field.rocks.map((r) => ({ x: r.x, y: r.y, z: r.z })),
     };
     window.__controlsTest = probe;
     window.__ridgefold = probe;
@@ -269,7 +283,7 @@ export function IsoView({ seed }: { seed: string }) {
 
       type Item = {
         d: number;
-        kind: "tile" | "prop" | "player" | "mob";
+        kind: "tile" | "prop" | "player" | "mob" | "rock";
         i: number;
         x: number;
         z: number;
@@ -338,7 +352,21 @@ export function IsoView({ seed }: { seed: string }) {
           water: false,
         });
       }
-      const isActor = (it: Item) => it.kind === "player" || it.kind === "mob";
+      const liveRocks = field.rocks.filter((r) => r.alive);
+      for (let i = 0; i < liveRocks.length; i++) {
+        const r = liveRocks[i]!;
+        items.push({
+          d: depth(r.x, r.z) + 0.04,
+          kind: "rock",
+          i,
+          x: r.x,
+          z: r.z,
+          h: r.y / HEIGHT_UNIT,
+          biome: 0,
+          water: false,
+        });
+      }
+      const isActor = (it: Item) => it.kind === "player" || it.kind === "mob" || it.kind === "rock";
       const hidesActor = (it: Item, subject: Item) => {
         if (it.kind === "prop") return it.d > subject.d;
         if (isActor(it)) return false;
@@ -362,6 +390,7 @@ export function IsoView({ seed }: { seed: string }) {
         if (it.kind === "tile") paint.drawBlock(it.x, it.z, it.h, it.biome, it.water, t);
         else if (it.kind === "prop") paint.drawProp(props[it.i]!);
         else if (it.kind === "mob") paint.drawMob(liveMobs[it.i]!);
+        else if (it.kind === "rock") paint.drawRock(liveRocks[it.i]!);
         else paint.drawExplorer(player);
       }
       ctx.restore();
@@ -392,14 +421,17 @@ export function IsoView({ seed }: { seed: string }) {
           sample.worldX = mapped.worldX;
           sample.worldZ = mapped.worldZ;
           stepPlayer(world, player, sample, FIXED_DT);
+          if (sample.throwPressed && throwRock(world, field, player)) {
+            audio.throw();
+          }
           const ev = stepMobs(world, field, player, FIXED_DT);
           if (ev.playerDamage > 0) {
             audio.hurt();
             trauma = Math.min(1, trauma + 0.48);
           }
-          if (ev.stomps > 0) {
-            audio.stomp();
-            trauma = Math.min(1, trauma + 0.28);
+          if (ev.scares > 0) {
+            audio.scare();
+            trauma = Math.min(1, trauma + 0.22);
           }
           if (player.hp <= 0) {
             die();
