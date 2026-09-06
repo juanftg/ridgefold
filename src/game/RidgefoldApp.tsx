@@ -4,9 +4,10 @@ import { useGame } from "./store";
 
 export function RidgefoldApp() {
   const seed = useGame((s) => s.seed);
+  const runId = useGame((s) => s.runId);
   return (
     <main className="app">
-      <IsoView key={seed} seed={seed} />
+      <IsoView key={`${seed}:${runId}`} seed={seed} />
       <Overlay />
     </main>
   );
