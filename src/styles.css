@@ -9,6 +9,7 @@
   --accent-fg: #0e1210;
   --border: rgba(242, 239, 232, 0.14);
   --ring: #c5cec6;
+  --danger: #c45c4a;
   --radius-md: 12px;
   --radius-lg: 16px;
   --radius-xl: 24px;
@@ -74,7 +75,8 @@ button:not(:disabled),
 }
 
 .shade.title { background: rgba(14, 18, 16, 0.3); }
-.shade.pause { position: absolute; inset: 0; background: rgba(14, 18, 16, 0.6); }
+.shade.pause,
+.shade.dead { position: absolute; inset: 0; background: rgba(14, 18, 16, 0.6); }
 
 .card {
   width: 100%;
@@ -191,6 +193,24 @@ button:not(:disabled),
   gap: 12px;
   font-size: 14px;
   font-variant-numeric: tabular-nums;
+}
+
+.hp {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hp-pip {
+  height: 6px;
+  width: 8px;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+.hp-pip.on {
+  background: var(--danger);
 }
 
 .muted { color: var(--fg-muted); display: inline-flex; align-items: center; gap: 6px; }
