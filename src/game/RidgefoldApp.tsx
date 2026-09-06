@@ -5,7 +5,7 @@ import { useGame } from "./store";
 export function RidgefoldApp() {
   const seed = useGame((s) => s.seed);
   return (
-    <main className="fixed inset-0 overflow-hidden bg-bg">
+    <main className="app">
       <IsoView key={seed} seed={seed} />
       <Overlay />
     </main>
